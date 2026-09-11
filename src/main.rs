@@ -34,7 +34,8 @@ const USAGE: &str = "usage:
   anybranch status <name> [--format json]                    replication state of a synced root
   anybranch repair <name>                                    skip the transaction that paused replication
   anybranch reset  <name>                                    re-clone from parent
-  anybranch settings <root> [set <key> <value> | remove <key>]   keys: default_db, branch_sql (@file or SQL), source
+  anybranch settings <root> [set <key> <value> [--hook name] | remove <key> [--hook name]]
+                                                             keys: default_db, branch_sql (@file or SQL; several via --hook, run in name order), source
   anybranch lock|unlock <name>                               protect a branch from rm
   anybranch start|stop|rm <name>
 env: ANYBRANCH_HOME (default ~/.anybranch)   ANYBRANCH_IDLE_MINUTES (default 5; 0 never suspends)";
@@ -126,8 +127,8 @@ fn main() {
         ["repair", name] => Branch::load(name).and_then(|b| b.repair()).map(|m| println!("{m}")),
         ["reset", name] => reset(name).and_then(|b| emit(&b, &a, None)),
         ["settings", root] => Branch::load(root).and_then(|b| b.settings_list()).map(|s| print!("{s}")),
-        ["settings", root, "set", key, value] => Branch::load(root).and_then(|b| b.set_setting(key, value)),
-        ["settings", root, "remove", key] => Branch::load(root).and_then(|b| b.remove_setting(key)),
+        ["settings", root, "set", key, value] => Branch::load(root).and_then(|b| b.set_setting(key, value, a.flags.get("hook"))),
+        ["settings", root, "remove", key] => Branch::load(root).and_then(|b| b.remove_setting(key, a.flags.get("hook"))),
         ["lock", name] => Branch::load(name).and_then(|b| io(fs::write(b.dir.join("lock"), ""))),
         ["unlock", name] => Branch::load(name).and_then(|b| io(fs::remove_file(b.dir.join("lock")).or(Ok(())))),
         ["start", name] => Branch::load(name).and_then(|b| b.start().and(b.url())).map(|u| println!("{u}")),
@@ -137,8 +138,14 @@ fn main() {
         _ => Err(USAGE.to_string()),
     };
     if let Err(e) = result {
-        eprintln!("error: {e}");
-        process::exit(1);
+        // 2 = the command itself was wrong (also preflight failure); 1 = something failed while running.
+        let code = if e.starts_with("usage:") || e.contains(USAGE) { 2 } else { 1 };
+        if json {
+            println!("{{\"error\":{}}}", js(&e));
+        } else {
+            eprintln!("error: {e}");
+        }
+        process::exit(code);
     }
 }
 
@@ -532,9 +539,9 @@ impl Branch {
             io(fs::write(run.join("detached"), ""))?;
         }
         if clone && !run.join("branch_sql.done").exists() {
-            if let Some(script) = self.setting("branch_sql") {
+            for (label, script) in self.hooks() {
                 if let Err(e) = self.sql(&script) {
-                    eprintln!("warning: branch_sql failed on {}: {e}", self.name);
+                    eprintln!("warning: {label} failed on {}: {e}", self.name);
                 }
             }
             io(fs::write(run.join("branch_sql.done"), ""))?;
@@ -663,7 +670,7 @@ impl Branch {
 
     fn info_json(&self) -> R<String> {
         Ok(format!(
-            "{{\"name\":{},\"engine\":{},\"parent\":{},\"status\":{},\"url\":{},\"port\":{},\"synced\":{},\"locked\":{},\"current\":{}}}",
+            "{{\"schema_version\":1,\"name\":{},\"engine\":{},\"parent\":{},\"status\":{},\"url\":{},\"port\":{},\"synced\":{},\"locked\":{},\"current\":{}}}",
             js(&self.name),
             js(self.engine.name()),
             self.parent().map(|p| js(&p)).unwrap_or_else(|| "null".into()),
@@ -808,22 +815,51 @@ impl Branch {
 
     // --- settings ------------------------------------------------------------------
 
+    /// branch_sql scripts on the root: `branch_sql` plus `branch_sql.<hook>`, in file-name order.
+    fn hooks(&self) -> Vec<(String, String)> {
+        let root = self.root();
+        let mut names: Vec<String> = fs::read_dir(&root.dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|e| e.file_name().into_string().ok())
+            .filter(|n| n == "branch_sql" || n.starts_with("branch_sql."))
+            .collect();
+        names.sort();
+        names.into_iter().filter_map(|n| fs::read_to_string(root.dir.join(&n)).ok().map(|sql| (n, sql))).collect()
+    }
+
+    fn hook_file(key: &str, hook: Option<&String>) -> R<String> {
+        match hook {
+            None => Ok(key.to_string()),
+            Some(_) if key != "branch_sql" => Err("--hook only applies to branch_sql".into()),
+            Some(h) if h.is_empty() || !h.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') => Err(format!("hook name {h:?} must be [a-z0-9-]")),
+            Some(h) => Ok(format!("branch_sql.{h}")),
+        }
+    }
+
     fn settings_list(&self) -> R<String> {
         let mut s = String::new();
-        for key in ["default_db", "branch_sql", "source"] {
+        for key in ["default_db", "source"] {
             let v = match (key, self.setting(key)) {
                 (_, None) => "(unset)".to_string(),
                 ("source", Some(u)) => redact(&u),
-                ("branch_sql", Some(sql)) => format!("{} bytes, {} lines", sql.len(), sql.lines().count()),
                 (_, Some(v)) => v,
             };
             s += &format!("{key:<11} {v}\n");
+        }
+        let hooks = self.hooks();
+        if hooks.is_empty() {
+            s += &format!("{:<11} (unset)\n", "branch_sql");
+        }
+        for (label, sql) in hooks {
+            s += &format!("{label:<11} {} bytes, {} lines\n", sql.len(), sql.lines().count());
         }
         s += &format!("{:<11} {}\n", "lock", if self.dir.join("lock").exists() { "locked" } else { "unlocked" });
         Ok(s)
     }
 
-    fn set_setting(&self, key: &str, value: &str) -> R<()> {
+    fn set_setting(&self, key: &str, value: &str, hook: Option<&String>) -> R<()> {
         if self.parent().is_some() {
             return Err(format!("settings live on roots; {} is a branch of {}", self.name, self.parent().unwrap_or_default()));
         }
@@ -834,16 +870,16 @@ impl Branch {
                     Some(path) => fs::read_to_string(path).map_err(|e| format!("{path}: {e}"))?,
                     None => value.to_string(),
                 };
-                io(fs::write(self.dir.join(key), sql))
+                io(fs::write(self.dir.join(Self::hook_file(key, hook)?), sql))
             }
             "source" => self.set_source(value),
             _ => Err(format!("unknown setting {key:?}; keys: default_db, branch_sql, source")),
         }
     }
 
-    fn remove_setting(&self, key: &str) -> R<()> {
+    fn remove_setting(&self, key: &str, hook: Option<&String>) -> R<()> {
         match key {
-            "default_db" | "branch_sql" => io(fs::remove_file(self.dir.join(key)).or(Ok(()))),
+            "default_db" | "branch_sql" => io(fs::remove_file(self.dir.join(Self::hook_file(key, hook)?)).or(Ok(()))),
             _ => Err(format!("cannot remove {key:?}; only default_db and branch_sql")),
         }
     }
@@ -1052,6 +1088,15 @@ impl Branch {
 
 fn create(name: &str, parent: &str) -> R<Branch> {
     let p = Branch::load(parent)?;
+    if let Ok(existing) = Branch::load(name) {
+        // Re-running create is safe: same branch, same URL. Scripts and agents rely on that.
+        if existing.parent().as_deref() == Some(parent) {
+            existing.start()?;
+            existing.set_current()?;
+            return Ok(existing);
+        }
+        return Err(format!("branch {name} already exists and was not created from {parent}"));
+    }
     let b = Branch::new(name, p.engine)?;
     let was_running = p.running();
     p.refresh();
@@ -1419,7 +1464,8 @@ mod tests {
         q("dev", "insert into t values(2)");
         assert_eq!(q("main", "select count(*) from t"), "1");
         assert_eq!(q("dev", "select count(*) from t"), "2");
-        assert!(create("dev", "main").is_err(), "duplicate names must be refused");
+        assert_eq!(create("dev", "main").unwrap().name, "dev", "re-running create returns the same branch");
+        assert!(create("dev", "dev").is_err(), "a different parent is refused");
         assert!(Branch::load("dev").unwrap().is_current());
         for name in ["dev", "main"] {
             Branch::load(name).unwrap().rm().unwrap();

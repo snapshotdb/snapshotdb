@@ -115,11 +115,18 @@ not collide. A branch never contacts production.
 Per-root settings shape every new branch:
 
 ```sh
-anybranch settings prod set default_db app            # database name in branch URLs
-anybranch settings prod set branch_sql @anonymize.sql # runs once on every new branch, never on the source
-anybranch settings prod set source 'postgresql://...' # rotate credentials without re-syncing
-anybranch lock prod                                   # rm refuses until unlock
+anybranch settings prod set default_db app                              # database name in branch URLs
+anybranch settings prod set branch_sql @anonymize.sql --hook 10-anonymize  # run once on every new branch, never on the source
+anybranch settings prod set branch_sql @fixtures.sql  --hook 20-fixtures   # several hooks run in name order
+anybranch settings prod set source 'postgresql://...'                   # rotate credentials without re-syncing
+anybranch lock prod                                                     # rm refuses until unlock
 ```
+
+Re-running `create` with the same name and parent returns the existing branch and URL, so
+scripts can retry safely. Exit codes follow the usual convention: 0 success, 1 something
+failed while running, 2 the command was wrong or preflight did not pass; with `--format json`
+errors are printed as `{"error": "..."}`. Client TLS for the source goes in the URL itself
+(`?sslmode=verify-full&sslrootcert=...&sslcert=...&sslkey=...` for Postgres).
 
 Idle branches stop their engine after `ANYBRANCH_IDLE_MINUTES` (default 5, 0 disables) and
 resume when a client connects; the proxy on the branch's port stays. Synced roots never

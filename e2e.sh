@@ -49,10 +49,14 @@ SQL
   check "replica has no event trigger" "$(psql "$PROD" -Atc 'select count(*) from pg_event_trigger')" 0
   # branches
   $B settings prod set branch_sql "insert into users(name) values ('seeded')"
+  $B settings prod set branch_sql "insert into users(name) values ('fixtures')" --hook 20-fixtures
   $B create dev --from prod --print-url >/dev/null; DEV=$($B url dev)
   check "create --print-url made dev current" "$($B info --print-url)" "$DEV"
+  check "re-running create returns the same URL" "$($B create dev --from prod --print-url)" "$DEV"
+  $B create dev >/dev/null 2>&1; check "usage error exits 2" "$?" 2
+  $B create dev --from nope --format json | grep -q '"error"'; check "json error output" "$?" 0
   check "branch has no subscription" "$(psql "$DEV" -Atc 'select count(*) from pg_subscription')" 0
-  check "branch_sql ran once on the new branch" "$(psql "$DEV" -Atc "select count(*) from users where name = 'seeded'")" 1
+  check "branch_sql hooks ran once on the new branch" "$(psql "$DEV" -Atc "select count(*) from users where name in ('seeded', 'fixtures')")" 2
   check "branch sequence advanced past replicated rows" "$(psql "$DEV" -Atqc "insert into users(name) values ('dev') returning id > 5000")" t
   psql "$SRC" -Atqc "insert into users(name) values ('after-branch')"
   waitfor "psql '$PROD' -Atc \"select count(*) from users where name = 'after-branch'\"" 1 "replica keeps streaming after branch"

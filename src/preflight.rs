@@ -103,7 +103,9 @@ fn postgres(url: &str, schemas: &str) -> R<Report> {
         (SELECT count(*) FROM pg_stat_replication), current_setting('max_wal_senders')::int, \
         (SELECT rolsuper FROM pg_roles WHERE rolname = current_user), \
         EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rds_superuser') AND pg_has_role(current_user, 'rds_superuser', 'MEMBER'), \
-        has_database_privilege(current_database(), 'CREATE'), current_user") {
+        has_database_privilege(current_database(), 'CREATE'), current_user, \
+        (SELECT rolreplication FROM pg_roles WHERE rolname = current_user), \
+        EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rds_replication') AND pg_has_role(current_user, 'rds_replication', 'MEMBER')") {
         Ok(row) => row,
         Err(e) => return Ok(unreachable_report("connection", e, "check host, port, credentials and that the server allows this client (pg_hba.conf)")),
     };
@@ -113,6 +115,8 @@ fn postgres(url: &str, schemas: &str) -> R<Report> {
     let (senders_used, senders_max): (i64, i64) = (f[5].parse().unwrap_or(0), f[6].parse().unwrap_or(0));
     let user = f[10];
     let superish = f[7] == "t" || f[8] == "t";
+    // The subscription's walsender connection needs the REPLICATION attribute (or rds_replication).
+    let can_replicate = f[7] == "t" || f.get(11) == Some(&"t") || f.get(12) == Some(&"t");
 
     let tables = psql(url, &format!(
         "SELECT format('%I.%I', n.nspname, c.relname) || '|' || has_table_privilege(c.oid, 'SELECT') || '|' || \
@@ -155,6 +159,7 @@ fn postgres(url: &str, schemas: &str) -> R<Report> {
         check("wal senders", senders_used < senders_max, format!("{senders_used}/{senders_max} used"), if senders_used < senders_max { "" } else { "raise max_wal_senders" }),
         check("tables found", !keyed.is_empty() || !unkeyed.is_empty(), format!("{} in {schemas}", keyed.len() + unkeyed.len()), "check --schemas"),
         check("can read tables", unreadable.is_empty(), if unreadable.is_empty() { String::new() } else { format!("missing SELECT on {}", unreadable.join(", ")) }, if unreadable.is_empty() { "" } else { "run the grant script below, then re-run preflight" }),
+        check("can replicate", can_replicate, if can_replicate { "" } else { "role lacks REPLICATION" }, if can_replicate { String::new() } else { format!("ALTER ROLE \"{user}\" WITH REPLICATION;   -- RDS: GRANT rds_replication TO \"{user}\";") }),
         check("can publish tables", unowned.is_empty(), if unowned.is_empty() { String::new() } else { format!("not owner of {}", unowned.join(", ")) }, if unowned.is_empty() { String::new() } else { format!("a publication needs the table owner: run as the owner, or ALTER TABLE ... OWNER TO \"{user}\"") }),
         check("can create schema", f[9] == "t", "", "GRANT CREATE ON DATABASE <db> TO the user (for the DDL log table)"),
         warn("can create event trigger", superish, if superish { "superuser" } else { "not superuser" }, if superish { "" } else { "schema changes will not replicate; use a superuser (RDS: rds_superuser) or rm and sync again after migrations" }),
