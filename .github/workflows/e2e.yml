@@ -1,0 +1,22 @@
+name: e2e
+on: [push, pull_request]
+jobs:
+  linux-btrfs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Btrfs volume for copy-on-write clones
+        run: |
+          sudo apt-get install -y -qq btrfs-progs >/dev/null
+          truncate -s 4G /tmp/btrfs.img && sudo mkfs.btrfs -q /tmp/btrfs.img
+          sudo mkdir -p /mnt/anybranch && sudo mount -o loop /tmp/btrfs.img /mnt/anybranch
+          sudo chown "$USER" /mnt/anybranch
+      - name: Engines on PATH
+        run: |
+          echo "/usr/lib/postgresql/$(ls /usr/lib/postgresql | sort -n | tail -1)/bin" >> "$GITHUB_PATH"
+          echo "/usr/sbin" >> "$GITHUB_PATH"
+          # Ubuntu's AppArmor profile confines mysqld to /var/lib/mysql; branches live elsewhere.
+          sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.mysqld 2>/dev/null || true
+      - name: End-to-end
+        run: ANYBRANCH_HOME=/mnt/anybranch/home ./e2e.sh
