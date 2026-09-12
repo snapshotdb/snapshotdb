@@ -185,10 +185,12 @@ cargo test
 
 ## Known limits
 
-- Postgres DDL replay uses the whole client query string. Migration tools send one statement
-  per query, which is exact; a hand-written `psql -c "ddl; insert ..."` batch replays its DML
-  too. Statements that cannot run in a transaction (`CREATE INDEX CONCURRENTLY`) are recorded
-  as failed in `status` and skipped.
+- Postgres DDL replay uses the whole client query string. Tools that send one statement per
+  query (Rails, Django, Flyway, Alembic, `psql -f`) are exact. A single query string mixing DDL
+  and DML (`psql -c "alter ...; insert ..."`, or a migration runner that sends a whole script
+  as one query) replays the DML on the replica too, and the streamed rows then collide and
+  pause the stream. Send such migrations statement by statement, or `rm` and `sync` again.
+  `CREATE INDEX CONCURRENTLY` is replayed as a plain `CREATE INDEX`.
 - Single machine: no accounts, teams, or remote access. Branch URLs are `127.0.0.1`.
 - Roots anybranch creates (`--new`, `sync`) get a generated admin password, and every branch
   rotates to its own on first start, so a branch URL never opens its parent. Postgres accepts

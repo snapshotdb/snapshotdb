@@ -1348,6 +1348,7 @@ fn list(json: bool) -> R<()> {
         println!("[{}]", items?.join(","));
         return Ok(());
     }
+    // Passwords are redacted here; `url` and `info --print-url` give the full string.
     for b in &branches {
         println!(
             "{}{}\t{}\t{}\t{}\t{}",
@@ -1356,7 +1357,7 @@ fn list(json: bool) -> R<()> {
             b.engine.name(),
             b.parent().unwrap_or_else(|| "-".into()),
             b.status_word(),
-            b.url().unwrap_or_default()
+            b.url().map(|u| redact(&u)).unwrap_or_default()
         );
     }
     Ok(())

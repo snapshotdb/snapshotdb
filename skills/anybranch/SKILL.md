@@ -20,26 +20,34 @@ production credentials, so it is safe to use freely.
 ## Commands
 
 ```sh
-anybranch list                                   # what exists; * marks the current branch
-anybranch create <task-name> --from prod --print-url   # new branch; prints only the URL
-anybranch info --print-url                       # URL of the current branch
+anybranch list                                   # what exists; * marks the current branch; passwords redacted
+anybranch create <task-name> --from prod --print-url   # new branch, becomes current; prints only the URL
+anybranch info --print-url                       # full URL of the current branch (use this on every step)
 anybranch reset <task-name>                      # throw away changes, re-clone from prod
-anybranch rm <task-name>                         # delete
+anybranch rm <task-name>                         # delete; prints nothing on success
 ```
 
 `prod` is the name of the synced root in most setups; run `anybranch list` to see the roots
 (they have `-` in the parent column). Use `--format json` on `list`, `info`, or `create` when
-you need to parse output.
+you need to parse output. Re-running `create` with the same name is safe and returns the
+same branch.
 
 ## Recipe
 
+Shell state rarely survives between an agent's steps, so re-read the URL each time instead
+of exporting it:
+
 ```sh
-DATABASE_URL="$(anybranch create fix-orders-index --from prod --print-url)"
-[ -n "$DATABASE_URL" ] || { echo "branch creation failed" >&2; exit 1; }
-export DATABASE_URL
-# ... run migrations, tests, queries against $DATABASE_URL ...
+anybranch create fix-orders-index --from prod --print-url >/dev/null || exit 1
+psql "$(anybranch info --print-url)" -v ON_ERROR_STOP=1 <<'SQL'
+begin;
+-- migration / backfill here; a failed step leaves the branch clean, or run `anybranch reset`
+commit;
+SQL
 anybranch rm fix-orders-index
 ```
+
+Do not write the URL to a file; ask `anybranch info --print-url` again instead.
 
 Branch names: 1-40 characters, no `/`, not starting with `.` or `_`.
 
