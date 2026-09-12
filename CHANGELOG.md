@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+- `reconcile <name>`: for Postgres sources where the event trigger cannot be created, add
+  the columns the source gained to the replica and put new keyed tables into the publication
+  and onto the replica. `repair` runs it automatically when a row arrives with a column the
+  replica lacks. Verified with a non-superuser role in an `rds_superuser` group.
+- Restricted roles: preflight requires read and ownership only for tables that will be
+  published; the schema copy leaves out tables the role cannot read.
+
 ## 0.2.0
 
 - `preflight <engine> <url>`: Ardent-style checklist (connection, version, writer, wal_level,

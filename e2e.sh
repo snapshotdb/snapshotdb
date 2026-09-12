@@ -89,6 +89,24 @@ SQL
   $B reset dev >/dev/null
   check "reset re-clones from replica (no seeded row twice)" "$(psql "$($B url dev)" -Atc "select count(*) from users where name = 'seeded'")" 1
   $B rm dev; $B rm dev2; $B rm prod
+  # RDS-like source: a non-superuser role in an rds_superuser group. No event trigger is
+  # possible, pg_dumpall --roles-only is refused, and migrations must be reconciled.
+  psql "$SRC" -Xq -c "create role rds_superuser nologin; create role app login replication password 'apppw' in role rds_superuser; grant create on database postgres to app; alter table users owner to app; alter table orders owner to app; grant usage, create on schema public to app;"
+  APP="postgresql://app:apppw@127.0.0.1:$(port src)/postgres"
+  $B preflight postgres "$APP" --format json | grep -q '"name":"can create event trigger","state":"pass"'; check "preflight treats rds_superuser membership as privileged" "$?" 0
+  $B sync postgres rds "$APP" 2>&1 | grep -q 'reconcile rds'; check "sync without superuser falls back and names reconcile" "$?" 0
+  RDS=$($B url rds)
+  waitfor "psql '$RDS' -Atc 'select count(*) from users'" "$(psql "$SRC" -Atc 'select count(*) from users')" "initial copy from the restricted role"
+  $B status rds | grep -q 'not tracked'; check "status says schema changes are not tracked" "$?" 0
+  psql "$APP" -Xqc "alter table users add column tier text"
+  psql "$APP" -Xqc "insert into users(name, tier) values ('gold-user', 'gold')"
+  waitfor "$B status rds | grep -c PAUSED" 1 "a row with an unknown column pauses the replica"
+  $B repair rds | grep -q 'added 1 columns'; check "repair reconciles the missing column" "$?" 0
+  waitfor "psql '$RDS' -Atc \"select tier from users where name = 'gold-user'\"" gold "the row arrives after reconcile"
+  psql "$APP" -Xqc "create table invoices(id serial primary key, amt int); insert into invoices(amt) values (9);"
+  $B reconcile rds | grep -q 'and 1 tables'; check "reconcile adds a new table to the publication and replica" "$?" 0
+  waitfor "psql '$RDS' -Atc 'select count(*) from invoices'" 1 "new table copied after reconcile"
+  $B rm rds
   check "no slot left on source" "$(psql "$SRC" -Atc 'select count(*) from pg_replication_slots')" 0
   check "no publication left on source" "$(psql "$SRC" -Atc 'select count(*) from pg_publication')" 0
   check "no event trigger left on source" "$(psql "$SRC" -Atc 'select count(*) from pg_event_trigger')" 0

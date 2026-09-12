@@ -32,7 +32,8 @@ const USAGE: &str = "usage:
   anybranch switch <name>                                    make a branch current
   anybranch list   [--format json]
   anybranch status <name> [--format json]                    replication state of a synced root
-  anybranch repair <name>                                    skip the transaction that paused replication
+  anybranch repair <name>                                    resume a paused replica (skip a poisoned transaction, or reconcile schema)
+  anybranch reconcile <name>                                 add columns/tables the source gained (for sources without the event trigger)
   anybranch reset  <name>                                    re-clone from parent
   anybranch settings <root> [set <key> <value> [--hook name] | remove <key> [--hook name]]
                                                              keys: default_db, branch_sql (@file or SQL; several via --hook, run in name order), source
@@ -127,6 +128,7 @@ fn main() {
         ["list"] => list(json),
         ["status", name] => Branch::load(name).and_then(|b| b.status()).map(|s| print!("{}", render_status(&s, json))),
         ["repair", name] => Branch::load(name).and_then(|b| b.repair()).map(|m| println!("{m}")),
+        ["reconcile", name] => Branch::load(name).and_then(|b| b.reconcile()).map(|m| println!("{m}")),
         ["reset", name] => reset(name).and_then(|b| emit(&b, &a, None)),
         ["settings", root] => Branch::load(root).and_then(|b| b.settings_list()).map(|s| print!("{s}")),
         ["settings", root, "set", key, value] => Branch::load(root).and_then(|b| b.set_setting(key, value, a.flags.get("hook"))),
@@ -843,6 +845,7 @@ impl Branch {
                     let (err, lsn) = self.last_apply_error();
                     lines.push(("stream", format!("PAUSED after an error: {err}")));
                     lines.push(("repair", match lsn {
+                        _ if err.contains("missing replicated column") || err.contains("does not exist") => format!("anybranch repair {} reconciles the schema from the source and resumes", self.name),
                         Some(l) => format!("anybranch repair {} skips the transaction at {l} and resumes", self.name),
                         None => format!("anybranch repair {} resumes (the error was not tied to a transaction)", self.name),
                     }));
@@ -870,7 +873,7 @@ impl Branch {
                          || coalesce(' (last: ' || (SELECT error FROM {sub}.ddl WHERE error IS NOT NULL ORDER BY id DESC LIMIT 1) || ')', '') FROM {sub}.ddl"
                     ))?
                 } else {
-                    "not tracked (no event trigger on the source; rm and sync again after migrations)".into()
+                    format!("not tracked (no event trigger on the source); after migrations run: anybranch reconcile {}", self.name)
                 }));
             }
             Engine::Mysql => {
@@ -934,6 +937,12 @@ impl Branch {
                     return Ok("replication is not paused; nothing to repair".into());
                 }
                 let (err, lsn) = self.last_apply_error();
+                // A migration on a source without the event trigger: bring the schema up, then resume.
+                if err.contains("missing replicated column") || err.contains("does not exist") {
+                    let did = self.reconcile()?;
+                    self.sql(&format!("ALTER SUBSCRIPTION {sub} ENABLE"))?;
+                    return Ok(format!("{did}; resumed ({err})"));
+                }
                 match lsn {
                     // A transaction the replica cannot apply: skip exactly that one.
                     Some(lsn) => {
@@ -969,6 +978,58 @@ impl Branch {
             }
             Engine::Sqlite => Err("sqlite does not replicate".into()),
         }
+    }
+
+    /// Without the event trigger, schema changes on the source do not replay. Reconcile adds
+    /// the columns the source gained to the replica's published tables, and puts new keyed
+    /// tables into the publication and onto the replica. Drops and renames are left alone.
+    fn reconcile(&self) -> R<String> {
+        let url = self.source().ok_or_else(|| format!("{} is not a synced root", self.name))?;
+        if self.engine != Engine::Postgres {
+            return Err("reconcile applies to Postgres roots; MySQL and MongoDB replicate schema natively".into());
+        }
+        self.start()?;
+        let sub = self.subname();
+        let schemas = self.setting("schemas").unwrap_or_else(|| "public".into());
+        let list = schemas.split(',').map(|s| format!("'{}'", s.trim())).collect::<Vec<_>>().join(",");
+        let columns = |where_tables: &str| format!(
+            "SELECT format('%I.%I', n.nspname, c.relname) || '|' || quote_ident(a.attname) || '|' || format_type(a.atttypid, a.atttypmod) \
+             FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE a.attnum > 0 AND NOT a.attisdropped AND c.oid IN ({where_tables}) ORDER BY 1, a.attnum"
+        );
+        let source_cols = psql(&url, &columns(&format!("SELECT prrelid FROM pg_publication_rel pr JOIN pg_publication p ON p.oid = pr.prpubid WHERE p.pubname = '{sub}'")))?;
+        let replica_cols = self.sql(&columns("SELECT srrelid FROM pg_subscription_rel"))?;
+        let have: std::collections::HashSet<String> = replica_cols.lines().map(|l| l.rsplit_once('|').map(|x| x.0.to_string()).unwrap_or_default()).collect();
+        let mut added_cols = 0;
+        for line in source_cols.lines() {
+            let parts: Vec<&str> = line.split('|').collect();
+            if parts.len() == 3 && !have.contains(&format!("{}|{}", parts[0], parts[1])) && !parts[0].starts_with(&format!("{sub}.")) {
+                self.sql(&format!("ALTER TABLE {} ADD COLUMN {} {}", parts[0], parts[1], parts[2]))?;
+                added_cols += 1;
+            }
+        }
+        // New keyed tables in the synced schemas that are not published yet.
+        let new_tables = psql(&url, &format!(
+            "SELECT string_agg(format('%I.%I', n.nspname, c.relname), ' ') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE c.relkind IN ('r', 'p') AND n.nspname IN ({list}) \
+             AND (c.relreplident IN ('f', 'i') OR EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisprimary)) \
+             AND NOT EXISTS (SELECT 1 FROM pg_publication_rel pr JOIN pg_publication p ON p.oid = pr.prpubid WHERE p.pubname = '{sub}' AND pr.prrelid = c.oid)"
+        ))?;
+        let mut added_tables = 0;
+        for table in new_tables.split_whitespace() {
+            let mut dump = Command::new("pg_dump");
+            dump.args(["--schema-only", "--no-owner", "--no-publications", "--no-subscriptions", "-t", table, "-d", &url]);
+            pipe(&mut dump, Command::new("psql").arg(self.socket_url(&self.database())?).args(["-X", "-q", "-o", "/dev/null"]))?;
+            psql(&url, &format!("ALTER PUBLICATION {sub} ADD TABLE {table}"))?;
+            added_tables += 1;
+        }
+        if added_tables > 0 {
+            if self.sql(&format!("SELECT subenabled FROM pg_subscription WHERE subname = '{sub}'"))? == "f" {
+                self.sql(&format!("ALTER SUBSCRIPTION {sub} ENABLE"))?;
+            }
+            self.sql(&format!("ALTER SUBSCRIPTION {sub} REFRESH PUBLICATION"))?;
+        }
+        Ok(format!("added {added_cols} columns and {added_tables} tables from the source"))
     }
 
     // --- settings ------------------------------------------------------------------
@@ -1123,6 +1184,7 @@ fn sync(engine: &str, name: &str, url: &str, schemas: &str, fix_identity: bool) 
             let db = if source_db.is_empty() { "postgres".to_string() } else { source_db };
             let result = write_secret(&b.dir.join("source"), url)
                 .and_then(|_| io(fs::write(b.dir.join("default_db"), &db)))
+                .and_then(|_| io(fs::write(b.dir.join("schemas"), schemas)))
                 .and_then(|_| b.init())
                 .and_then(|_| b.start())
                 .and_then(|_| {
@@ -1141,6 +1203,15 @@ fn sync(engine: &str, name: &str, url: &str, schemas: &str, fix_identity: bool) 
                     for schema in schemas.split(',').chain(ddl.then_some(sub.as_str())) {
                         dump.args(["-n", schema.trim()]);
                     }
+                    // pg_dump locks every table it dumps; a restricted role cannot lock tables it
+                    // may not read, so leave those out (they are not published anyway).
+                    let unreadable = psql(url, &format!(
+                        "SELECT coalesce(string_agg(format('%I.%I', n.nspname, c.relname), ' '), '') FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+                         WHERE c.relkind IN ('r', 'p', 'm', 'f') AND n.nspname IN ({list}) AND NOT has_table_privilege(c.oid, 'SELECT')"
+                    ))?;
+                    for table in unreadable.split_whitespace() {
+                        dump.args(["--exclude-table", table]);
+                    }
                     let warnings = pipe(&mut dump, Command::new("psql").arg(b.socket_url(&db)?).args(["-X", "-q", "-o", "/dev/null"]))?;
                     if !warnings.trim().is_empty() {
                         io(fs::write(b.run().join("schema.log"), &warnings))?;
@@ -1156,7 +1227,7 @@ fn sync(engine: &str, name: &str, url: &str, schemas: &str, fix_identity: bool) 
                     if ddl {
                         // Last, so our own publication statements are not logged and replayed.
                         if let Err(e) = psql(url, &format!("CREATE EVENT TRIGGER {sub} ON ddl_command_end EXECUTE FUNCTION {sub}.log_ddl()")) {
-                            eprintln!("schema changes will not replicate (an event trigger on the source needs superuser): {e}\n  after production migrations: anybranch rm {name} and sync again");
+                            eprintln!("schema changes will not replay automatically (an event trigger on the source needs superuser): {}\n  after production migrations run: anybranch reconcile {name}", e.lines().last().unwrap_or(""));
                         }
                     }
                     // disable_on_error: a poisoned transaction pauses the stream instead of retrying forever;

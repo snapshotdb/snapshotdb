@@ -47,7 +47,8 @@ anybranch url    [name]
 anybranch switch <name>                                    make a branch current
 anybranch list   [--format json]
 anybranch status <name> [--format json]                    replication state of a synced root
-anybranch repair <name>                                    skip the transaction that paused replication
+anybranch repair <name>                                    resume a paused replica (skip a poisoned transaction, or reconcile schema)
+anybranch reconcile <name>                                 add columns/tables the source gained (for sources without the event trigger)
 anybranch reset  <name>                                    re-clone from parent
 anybranch settings <root> [set <key> <value> | remove <key>]   keys: default_db, branch_sql (@file or SQL), source
 anybranch lock|unlock <name>                               protect a branch from rm
@@ -114,8 +115,12 @@ slot, a schema holding a `ddl` log table, and an event trigger that writes each 
 into that table. The table is replicated and a trigger on the replica replays it, so
 migrations on production appear on the replica and new tables join replication on the next
 `status` or `create`. The event trigger swallows its own errors, so it can never fail your
-DDL; creating it needs superuser (RDS: `rds_superuser`), and without it rows still replicate
-and `status` says schema changes are not tracked. `rm` removes everything it created.
+DDL; creating it needs superuser (RDS: `rds_superuser`; Supabase's `postgres` role can too).
+Without it rows still replicate, `status` says schema changes are not tracked, and after a
+migration `anybranch reconcile <name>` adds the columns and new tables the source gained.
+A row arriving with a column the replica lacks pauses the stream, and `repair` runs the
+reconcile and resumes. Tables the role cannot read are left out of the schema copy and the
+publication. `rm` removes everything it created.
 
 **MySQL**: 8.0+, `gtid_mode = ON`, `enforce_gtid_consistency = ON`, row-format binary logging,
 and a user with `REPLICATION SLAVE` plus read access. User databases are dumped once with

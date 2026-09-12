@@ -135,14 +135,16 @@ fn postgres(url: &str, schemas: &str) -> R<Report> {
             continue;
         }
         // booleans concatenated with || come out as true/false, not psql's t/f
-        if t[1] != "true" {
-            unreadable.push(t[0].to_string());
-        }
-        if t[2] != "true" {
-            unowned.push(t[0].to_string());
-        }
         if t[3] == "true" {
             keyed.push(t[0].to_string());
+            // Only tables that will be published need to be readable and owned
+            // (initial copy and CREATE PUBLICATION ... FOR TABLE); skipped tables need nothing.
+            if t[1] != "true" {
+                unreadable.push(t[0].to_string());
+            }
+            if t[2] != "true" {
+                unowned.push(t[0].to_string());
+            }
         } else {
             unkeyed.push(format!("ALTER TABLE {} REPLICA IDENTITY FULL;", t[0]));
         }
