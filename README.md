@@ -190,7 +190,10 @@ cargo test
   too. Statements that cannot run in a transaction (`CREATE INDEX CONCURRENTLY`) are recorded
   as failed in `status` and skipped.
 - Single machine: no accounts, teams, or remote access. Branch URLs are `127.0.0.1`.
-- Auth is whatever the source had. `--new` Postgres trusts local connections; `--new` MySQL
-  has `root` with no password; `--new` MongoDB has no auth.
+- Roots anybranch creates (`--new`, `sync`) get a generated admin password, and every branch
+  rotates to its own on first start, so a branch URL never opens its parent. Postgres accepts
+  the password over TCP and trusts only its Unix socket, which anybranch itself uses; MongoDB
+  runs with a keyFile and a `root` user. Roots imported from an existing data directory keep
+  whatever auth they came with.
 
 Apache-2.0.

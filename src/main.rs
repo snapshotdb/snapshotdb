@@ -299,6 +299,65 @@ impl Branch {
         })
     }
 
+    // --- credentials -----------------------------------------------------------------
+
+    /// This branch's own admin password, once it has one.
+    fn password(&self) -> Option<String> {
+        fs::read_to_string(self.dir.join("password")).ok().filter(|s| !s.is_empty())
+    }
+
+    /// The admin password the data currently accepts: this branch's own, or the parent's
+    /// for a fresh clone that has not rotated yet.
+    fn inherited_password(&self) -> Option<String> {
+        self.password().or_else(|| self.parent().and_then(|p| Branch::load(&p).ok()).and_then(|p| p.inherited_password()))
+    }
+
+    /// anybranch manages credentials for roots it created (`--new`, `sync`) and their clones.
+    /// Imported data directories keep whatever auth they came with.
+    fn managed(&self) -> bool {
+        self.dir.join("new").exists()
+            || self.password().is_some()
+            || self.parent().and_then(|p| Branch::load(&p).ok()).map(|p| p.managed()).unwrap_or(false)
+    }
+
+    fn admin_user(&self) -> String {
+        match self.engine {
+            Engine::Postgres => env::var("USER").unwrap_or_else(|_| "postgres".into()),
+            Engine::Mysql => "root".into(),
+            Engine::Mongodb => "anybranch".into(),
+            Engine::Sqlite => String::new(),
+        }
+    }
+
+    /// Give this branch its own admin password: a fresh clone still accepts its parent's,
+    /// a fresh MySQL or MongoDB root none at all.
+    fn ensure_credentials(&self) -> R<()> {
+        let run = self.run();
+        if !self.managed() || run.join("creds").exists() {
+            return Ok(());
+        }
+        if self.password().is_none() {
+            let new = random_password()?;
+            let current = self.inherited_password();
+            let user = self.admin_user();
+            match self.engine {
+                Engine::Postgres => psql(&self.socket_url("postgres")?, &format!("ALTER ROLE \"{user}\" PASSWORD '{new}'"))?,
+                Engine::Mysql => out(self.mysql_with(current.as_deref()).arg("-e").arg(format!("ALTER USER 'root'@'localhost' IDENTIFIED BY '{new}'")))?,
+                Engine::Mongodb => {
+                    // No users yet: the localhost exception lets us create the first one.
+                    let script = match current {
+                        None => format!("db.getSiblingDB('admin').createUser({{ user: '{user}', pwd: '{new}', roles: ['root'] }})"),
+                        Some(_) => format!("db.getSiblingDB('admin').changeUserPassword('{user}', '{new}')"),
+                    };
+                    mongosh(&self.engine_url()?, &script)?
+                }
+                Engine::Sqlite => String::new(),
+            };
+            write_secret(&self.dir.join("password"), &new)?;
+        }
+        io(fs::write(run.join("creds"), ""))
+    }
+
     fn set_current(&self) -> R<()> {
         io(fs::write(home().join(".current"), &self.name))
     }
@@ -356,39 +415,69 @@ impl Branch {
         Ok(self.url_on(port, true))
     }
 
-    /// URL straight to the engine, for anybranch's own maintenance commands.
+    /// URL straight to the engine, for anybranch's own maintenance commands (MongoDB, and
+    /// mongorestore). Carries the password the data currently accepts.
     fn engine_url(&self) -> R<String> {
         let port = self.eport().filter(|_| self.running()).ok_or_else(|| format!("{} is not running", self.name))?;
         Ok(self.url_on(port, false))
     }
 
+    /// Postgres over its Unix socket, which pg_hba trusts locally, so it works before and
+    /// after the password is set.
+    fn socket_url(&self, db: &str) -> R<String> {
+        let port = self.eport().filter(|_| self.running()).ok_or_else(|| format!("{} is not running", self.name))?;
+        Ok(format!("postgresql:///{db}?host={}&port={port}&user={}", self.run().display(), self.admin_user()))
+    }
+
     fn url_on(&self, port: u16, public: bool) -> String {
         let db = self.database();
+        let user = self.admin_user();
+        let pw = if public { self.password() } else { self.inherited_password() };
+        let cred = match &pw {
+            Some(pw) => format!("{user}:{pw}@"),
+            None => format!("{user}@"),
+        };
         match self.engine {
             // ponytail: assumes the cluster's superuser is $USER (initdb's default); set default_db for the database.
-            Engine::Postgres => format!("postgresql://{}@127.0.0.1:{port}/{db}", env::var("USER").unwrap_or_default()),
-            Engine::Mysql => format!("mysql://root@127.0.0.1:{port}/{db}"),
-            // directConnection: drivers must not discover the engine port behind the proxy.
-            Engine::Mongodb => format!("mongodb://127.0.0.1:{port}/{db}{}", if public { "?directConnection=true" } else { "" }),
+            Engine::Postgres => format!("postgresql://{cred}127.0.0.1:{port}/{db}"),
+            Engine::Mysql => format!("mysql://{cred}127.0.0.1:{port}/{db}"),
+            Engine::Mongodb => {
+                // directConnection: drivers must not discover the engine port behind the proxy.
+                let mut q = vec![];
+                if public {
+                    q.push("directConnection=true");
+                }
+                if pw.is_some() {
+                    q.push("authSource=admin");
+                }
+                format!("mongodb://{}127.0.0.1:{port}/{db}{}{}", if pw.is_some() { cred } else { String::new() }, if q.is_empty() { "" } else { "?" }, q.join("&"))
+            }
             Engine::Sqlite => unreachable!(),
         }
     }
 
-    /// The mysql client pointed at this branch's socket.
-    fn mysql(&self) -> Command {
+    /// The mysql client pointed at this branch's socket, authenticating with `pw`.
+    fn mysql_with(&self, pw: Option<&str>) -> Command {
         let mut c = Command::new("mysql");
         c.args(["--no-defaults", "-u", "root", "-N", "-B", "--protocol=socket"])
             .arg(format!("--socket={}", self.run().join("sock").display()));
+        if let Some(pw) = pw {
+            c.env("MYSQL_PWD", pw);
+        }
         if !self.database().is_empty() {
             c.args(["-D", &self.database()]);
         }
         c
     }
 
+    fn mysql(&self) -> Command {
+        self.mysql_with(self.inherited_password().as_deref())
+    }
+
     /// Run SQL (or JavaScript for MongoDB) on this branch's own server; returns stdout.
     fn sql(&self, statement: &str) -> R<String> {
         match self.engine {
-            Engine::Postgres => psql(&self.engine_url()?, statement),
+            Engine::Postgres => psql(&self.socket_url(&self.database())?, statement),
             Engine::Mysql => out(self.mysql().arg("-e").arg(statement)),
             Engine::Mongodb => mongosh(&self.engine_url()?, statement),
             Engine::Sqlite => Err("sqlite has no server; open the file directly".into()),
@@ -397,11 +486,23 @@ impl Branch {
 
     // --- lifecycle -----------------------------------------------------------------
 
-    /// Create an empty database in data/, cleanly shut down.
+    /// Create an empty database in data/, cleanly shut down, with credentials anybranch manages.
     fn init(&self) -> R<()> {
         let data = self.data();
+        io(fs::write(self.dir.join("new"), ""))?;
         match self.engine {
-            Engine::Postgres => sh(Command::new("initdb").arg("-D").arg(&data)),
+            Engine::Postgres => {
+                // Password auth over TCP, trust on the Unix socket that anybranch itself uses.
+                let pw = random_password()?;
+                let pwfile = self.run().join("pwfile");
+                write_secret(&pwfile, &pw)?;
+                let result = sh(Command::new("initdb")
+                    .arg("-D").arg(&data)
+                    .args(["--auth-host=scram-sha-256", "--auth-local=trust", "-U", &self.admin_user(), "--pwfile"])
+                    .arg(&pwfile));
+                let _ = fs::remove_file(&pwfile);
+                result.and_then(|_| write_secret(&self.dir.join("password"), &pw))
+            }
             Engine::Mysql => sh(Command::new("mysqld")
                 .args(["--no-defaults", "--initialize-insecure"])
                 .arg(format!("--datadir={}", data.display()))
@@ -501,20 +602,26 @@ impl Branch {
             Engine::Mongodb => {
                 // Every mongod is a single-node replica set, so change streams and transactions
                 // work and a synced root can be tailed. Spawned detached: 8.3 dropped --fork on macOS.
-                let mut child = Command::new("mongod")
-                    .arg("--dbpath").arg(&data)
+                let mut cmd = Command::new("mongod");
+                cmd.arg("--dbpath").arg(&data)
                     .args(["--port", &port.to_string(), "--bind_ip", "127.0.0.1", "--nounixsocket", "--logappend", "--replSet", "anybranch"])
                     .arg("--logpath").arg(run.join("log"))
-                    .arg("--pidfilepath").arg(run.join("pid"))
+                    .arg("--pidfilepath").arg(run.join("pid"));
+                if self.managed() {
+                    // A keyFile turns authentication on; for a single-node set its content is arbitrary.
+                    let keyfile = self.dir.join("keyfile");
+                    if !keyfile.exists() {
+                        write_secret(&keyfile, &format!("{}{}", random_password()?, random_password()?))?;
+                    }
+                    cmd.arg("--keyFile").arg(&keyfile);
+                }
+                let mut child = cmd
                     .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
                     .process_group(0)
                     .spawn()
                     .map_err(|e| format!("mongod: {e}"))?;
                 wait_port(port, &mut child, &run.join("log"))?;
-                mongosh(&format!("mongodb://127.0.0.1:{port}/"), &MONGO_ENSURE_PRIMARY.replace("PORT", &port.to_string()))?;
-                if self.source().is_some() {
-                    self.spawn_tail()?;
-                }
+                mongosh(&self.url_on(port, false), &MONGO_ENSURE_PRIMARY.replace("PORT", &port.to_string()))?;
             }
             Engine::Mysql => {
                 let mut cmd = Command::new("mysqld");
@@ -543,9 +650,13 @@ impl Branch {
             }
             Engine::Sqlite => unreachable!(),
         }
+        self.ensure_credentials()?;
         if clone && !run.join("detached").exists() {
             self.detach()?;
             io(fs::write(run.join("detached"), ""))?;
+        }
+        if self.engine == Engine::Mongodb && self.source().is_some() {
+            self.spawn_tail()?;
         }
         if clone && !run.join("branch_sql.done").exists() {
             for (label, script) in self.hooks() {
@@ -986,12 +1097,12 @@ fn sync(engine: &str, name: &str, url: &str, schemas: &str, fix_identity: bool) 
                 .and_then(|_| b.start())
                 .and_then(|_| {
                     if db != "postgres" {
-                        psql(&b.url_on(b.eport().unwrap_or_default(), false).replace(&format!("/{db}"), "/postgres"), &format!("CREATE DATABASE \"{db}\""))?;
+                        psql(&b.socket_url("postgres")?, &format!("CREATE DATABASE \"{db}\""))?;
                     }
                     // Roles first so GRANTs in the schema dump resolve; roles that already exist error harmlessly.
                     let _ = pipe(
                         Command::new("pg_dumpall").args(["--roles-only", "--no-role-passwords", "-d", url]),
-                        Command::new("psql").arg(b.engine_url()?).args(["-X", "-q"]),
+                        Command::new("psql").arg(b.socket_url(&db)?).args(["-X", "-q"]),
                     );
                     // The dump recreates the schemas it covers; the fresh database's own `public` would collide.
                     b.sql("DROP SCHEMA IF EXISTS public CASCADE")?;
@@ -1000,7 +1111,7 @@ fn sync(engine: &str, name: &str, url: &str, schemas: &str, fix_identity: bool) 
                     for schema in schemas.split(',').chain(ddl.then_some(sub.as_str())) {
                         dump.args(["-n", schema.trim()]);
                     }
-                    let warnings = pipe(&mut dump, Command::new("psql").arg(b.engine_url()?).args(["-X", "-q", "-o", "/dev/null"]))?;
+                    let warnings = pipe(&mut dump, Command::new("psql").arg(b.socket_url(&db)?).args(["-X", "-q", "-o", "/dev/null"]))?;
                     if !warnings.trim().is_empty() {
                         io(fs::write(b.run().join("schema.log"), &warnings))?;
                         eprintln!("schema load warnings (usually extensions or roles missing locally; saved to run/schema.log):\n{warnings}");
@@ -1050,6 +1161,9 @@ fn sync(engine: &str, name: &str, url: &str, schemas: &str, fix_identity: bool) 
                         .env("MYSQL_PWD", &pass);
                     let mut restore = Command::new("mysql");
                     restore.args(["--no-defaults", "-u", "root", "--protocol=socket"]).arg(format!("--socket={}", b.run().join("sock").display()));
+                    if let Some(pw) = b.password() {
+                        restore.env("MYSQL_PWD", pw);
+                    }
                     pipe(&mut dump, &mut restore)?;
                     b.sql(&format!(
                         "CHANGE REPLICATION SOURCE TO SOURCE_HOST='{host}', SOURCE_PORT={port}, SOURCE_USER='{user}', \
@@ -1076,7 +1190,7 @@ fn sync(engine: &str, name: &str, url: &str, schemas: &str, fix_identity: bool) 
                 .and_then(|_| {
                     pipe(
                         Command::new("mongodump").args(["--uri", url, "--archive", "--quiet"]),
-                        Command::new("mongorestore").args(["--uri", &b.url_on(b.eport().unwrap_or_default(), false), "--archive", "--drop", "--quiet", "--nsExclude", "admin.*", "--nsExclude", "config.*"]),
+                        Command::new("mongorestore").args(["--uri", &b.engine_url()?, "--archive", "--drop", "--quiet", "--nsExclude", "admin.*", "--nsExclude", "config.*"]),
                     )?;
                     // `source` is written only now so start() did not launch the tailer before the restore.
                     io(fs::write(b.run().join("token"), &token))?;
@@ -1350,6 +1464,14 @@ pub fn js(s: &str) -> String {
     }
     o.push('"');
     o
+}
+
+/// 32 hex characters from /dev/urandom: URL-safe, no encoding needed.
+fn random_password() -> R<String> {
+    use std::io::Read;
+    let mut buf = [0u8; 16];
+    io(fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut buf)))?;
+    Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 fn write_secret(path: &Path, content: &str) -> R<()> {

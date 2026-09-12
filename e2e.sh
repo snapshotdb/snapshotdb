@@ -15,10 +15,14 @@ check() { if [ "$2" = "$3" ]; then echo "  ok   $1 = $2"; else echo "  FAIL $1: 
 waitfor() { for _ in $(seq 1 120); do v=$(eval "$1" 2>/dev/null); [ "$v" = "$2" ] && break; sleep 0.3; done; check "$3" "$v" "$2"; }
 port() { local u; u=$($B url "$1"); u=${u##*:}; echo "${u%%/*}"; }
 st() { $B list | sed 's/^[* ] //' | awk -F'\t' -v n="$1" '$1==n{print $4}'; }
+pwof() { local a=${1#*://}; a=${a%%@*}; echo "${a#*:}"; }
+refused() { "$@" >/dev/null 2>&1 && echo allowed || echo refused; }
 
 if command -v pg_ctl >/dev/null; then
   echo "postgres"
   $B import postgres src --new >/dev/null; SRC=$($B url src)
+  echo "$SRC" | grep -qE '^postgresql://[^:]+:[0-9a-f]{32}@'; check "root has a generated password" "$?" 0
+  check "TCP without the password is refused" "$(refused psql "postgresql://$USER@127.0.0.1:$(port src)/postgres" -Atc 'select 1')" refused
   psql "$SRC" -Xq -c "create table users(id serial primary key, name text); insert into users(name) select 'u'||g from generate_series(1,1000) g; create table nopk(x int);"
   $B preflight postgres "$SRC" >/dev/null 2>&1; check "preflight passes on a good source" "$?" 0
   $B preflight postgres "postgresql://nobody@127.0.0.1:1/x" >/dev/null 2>&1; check "preflight exits 2 on a bad source" "$?" 2
@@ -59,6 +63,7 @@ SQL
   check "re-running create returns the same URL" "$($B create dev --from prod --print-url)" "$DEV"
   $B create dev >/dev/null 2>&1; check "usage error exits 2" "$?" 2
   $B create dev --from nope --format json | grep -q '"error"'; check "json error output" "$?" 0
+  check "branch has its own password" "$([ "$(pwof "$DEV")" != "$(pwof "$PROD")" ] && echo distinct)" distinct
   check "branch has no subscription" "$(psql "$DEV" -Atc 'select count(*) from pg_subscription')" 0
   check "branch_sql hooks ran once on the new branch" "$(psql "$DEV" -Atc "select count(*) from users where name in ('seeded', 'fixtures')")" 2
   check "branch sequence advanced past replicated rows" "$(psql "$DEV" -Atqc "insert into users(name) values ('dev') returning id > 5000")" t
@@ -93,29 +98,32 @@ fi
 
 if command -v mysqld >/dev/null; then
   echo "mysql"
-  m() { mysql --no-defaults -h 127.0.0.1 -P "$1" -u root -N -B -e "$2"; }
-  $B import mysql msrc --new >/dev/null; P=$(port msrc)
-  m "$P" "create database app; create table app.t(id int auto_increment primary key, v int); insert into app.t(v) values (1),(2),(3)"
-  $B preflight mysql "mysql://root@127.0.0.1:$P/" >/dev/null 2>&1; check "preflight passes" "$?" 0
-  $B sync mysql mrep "mysql://root@127.0.0.1:$P/" >/dev/null 2>&1; R=$(port mrep)
-  waitfor "m $R 'select count(*) from app.t'" 3 "initial copy"
-  m "$P" "insert into app.t(v) values (4); alter table app.t add column note varchar(10); update app.t set note = 'n' where id = 1"
-  waitfor "m $R 'select count(*) from app.t'" 4 "live change replicated"
-  waitfor "m $R 'select note from app.t where id = 1'" n "schema change replicated"
+  mu() { local hp=${1#mysql://root:}; local port=${1##*:}; port=${port%%/*}; MYSQL_PWD="${hp%%@*}" mysql --no-defaults -h 127.0.0.1 -P "$port" -u root -N -B -e "$2"; }
+  $B import mysql msrc --new >/dev/null; MS=$($B url msrc)
+  echo "$MS" | grep -qE '^mysql://root:[0-9a-f]{32}@'; check "root has a generated password" "$?" 0
+  check "TCP without the password is refused" "$(refused mysql --no-defaults -h 127.0.0.1 -P "$(port msrc)" -u root -e 'select 1')" refused
+  mu "$MS" "create database app; create table app.t(id int auto_increment primary key, v int); insert into app.t(v) values (1),(2),(3)"
+  $B preflight mysql "$MS" >/dev/null 2>&1; check "preflight passes" "$?" 0
+  $B sync mysql mrep "$MS" >/dev/null 2>&1; MR=$($B url mrep)
+  waitfor "mu '$MR' 'select count(*) from app.t'" 3 "initial copy"
+  mu "$MS" "insert into app.t(v) values (4); alter table app.t add column note varchar(10); update app.t set note = 'n' where id = 1"
+  waitfor "mu '$MR' 'select count(*) from app.t'" 4 "live change replicated"
+  waitfor "mu '$MR' 'select note from app.t where id = 1'" n "schema change replicated"
   $B status mrep | grep -q 'caught up'; check "status reports caught up" "$?" 0
   # poisoned transaction
-  m "$R" "insert into app.t(id, v) values (500, 0)"
-  m "$P" "insert into app.t(id, v) values (500, 1)"
+  mu "$MR" "insert into app.t(id, v) values (500, 0)"
+  mu "$MS" "insert into app.t(id, v) values (500, 1)"
   waitfor "$B status mrep | grep -c PAUSED" 1 "conflict pauses the replica SQL thread"
   $B repair mrep | grep -q skipped; check "repair skips the failing GTID" "$?" 0
-  m "$P" "insert into app.t(v) values (5)"
-  waitfor "m $R 'select count(*) from app.t where v = 5'" 1 "rows flow again after repair"
-  $B create mdev --from mrep >/dev/null; D=$(port mdev)
-  check "branch has no replication channel" "$(m "$D" 'select count(*) from performance_schema.replication_connection_configuration')" 0
-  m "$P" "insert into app.t(v) values (6)"
-  waitfor "m $R 'select count(*) from app.t where v = 6'" 1 "replica keeps streaming after branch"
-  check "branch isolated from later production writes" "$(m "$D" 'select count(*) from app.t where v = 6')" 0
-  $B stop mdev; check "connecting to a suspended branch resumes it" "$(m "$D" 'select 1')" 1
+  mu "$MS" "insert into app.t(v) values (5)"
+  waitfor "mu '$MR' 'select count(*) from app.t where v = 5'" 1 "rows flow again after repair"
+  $B create mdev --from mrep >/dev/null; MD=$($B url mdev)
+  check "branch has its own password" "$([ "$(pwof "$MD")" != "$(pwof "$MR")" ] && echo distinct)" distinct
+  check "branch has no replication channel" "$(mu "$MD" 'select count(*) from performance_schema.replication_connection_configuration')" 0
+  mu "$MS" "insert into app.t(v) values (6)"
+  waitfor "mu '$MR' 'select count(*) from app.t where v = 6'" 1 "replica keeps streaming after branch"
+  check "branch isolated from later production writes" "$(mu "$MD" 'select count(*) from app.t where v = 6')" 0
+  $B stop mdev; check "connecting to a suspended branch resumes it" "$(mu "$MD" 'select 1')" 1
   $B rm mdev; $B rm mrep; $B rm msrc
 fi
 
@@ -123,9 +131,12 @@ if command -v mongod >/dev/null && command -v mongosh >/dev/null; then
   echo "mongodb"
   mq() { mongosh --quiet "$1" --eval "$2"; }
   $B import mongodb mg --new >/dev/null; U=$($B url mg)
+  echo "$U" | grep -qE '^mongodb://anybranch:[0-9a-f]{32}@'; check "root has generated credentials" "$?" 0
+  check "unauthenticated access is refused" "$(refused mongosh --quiet "mongodb://127.0.0.1:$(port mg)/?directConnection=true" --eval 'db.getSiblingDB("app").t.countDocuments()')" refused
   mq "$U" 'db.getSiblingDB("app").t.insertMany([{_id:1},{_id:2},{_id:3}])' >/dev/null
   check "root is a writable single-node replica set" "$(mq "$U" 'print(db.hello().isWritablePrimary)')" true
   $B create mg2 --from mg >/dev/null; U2=$($B url mg2)
+  check "branch has its own password" "$([ "$(pwof "$U2")" != "$(pwof "$U")" ] && echo distinct)" distinct
   check "clone reconfigured onto its own engine port" "$(mq "$U2" 'print(rs.conf().members[0].host)')" "127.0.0.1:$(cat "$ANYBRANCH_HOME/mg2/run/eport")"
   mq "$U2" 'db.getSiblingDB("app").t.insertOne({_id:4})' >/dev/null
   check "branch has its own writes" "$(mq "$U2" 'print(db.getSiblingDB("app").t.countDocuments())')" 4
