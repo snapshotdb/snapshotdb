@@ -589,8 +589,9 @@ impl Branch {
                 // apply workers, so an inherited subscription can never race the root for its slot.
                 // %b tags each log line with the backend type, so status can tell a replication
                 // worker's error from anybranch's own statements.
+                // wal_receiver_timeout: replaying a long DDL on a big table must not look like a dead link.
                 let mut opts = format!(
-                    "-c listen_addresses=127.0.0.1 -c port={port} -c unix_socket_directories='{}' -c wal_level=logical -c log_line_prefix='%m [%p] %b: '",
+                    "-c listen_addresses=127.0.0.1 -c port={port} -c unix_socket_directories='{}' -c wal_level=logical -c log_line_prefix='%m [%p] %b: ' -c wal_receiver_timeout={REPLICATION_TIMEOUT_MS}",
                     run.display()
                 );
                 if clone {
@@ -1046,7 +1047,7 @@ impl Branch {
         self.source().ok_or_else(|| format!("{} is not a synced root", self.name))?;
         self.start()?;
         match self.engine {
-            Engine::Postgres => self.sql(&format!("ALTER SUBSCRIPTION {} CONNECTION '{}'", self.subname(), url.replace('\'', "''")))?,
+            Engine::Postgres => self.sql(&format!("ALTER SUBSCRIPTION {} CONNECTION '{}'", self.subname(), replication_conninfo(url).replace('\'', "''")))?,
             Engine::Mysql => {
                 let (user, pass, host, port) = parse_url(url)?;
                 self.sql(&format!(
@@ -1162,7 +1163,7 @@ fn sync(engine: &str, name: &str, url: &str, schemas: &str, fix_identity: bool) 
                     // `status` shows it and `repair` skips it.
                     b.sql(&format!(
                         "CREATE SUBSCRIPTION {sub} CONNECTION '{}' PUBLICATION {sub} WITH (disable_on_error = true)",
-                        url.replace('\'', "''")
+                        replication_conninfo(url).replace('\'', "''")
                     ))
                 });
             if let Err(e) = result {
@@ -1411,6 +1412,16 @@ fn clone(src: &Path, dst: &Path) -> R<()> {
         cp.args(["-a", "--reflink=always"]);
     }
     sh(cp.arg(src).arg(dst))
+}
+
+/// Replication link timeouts, both sides. Postgres defaults to 60 s, which a single long
+/// DDL replay or lock wait on a large table exceeds; the walsender then drops the link and
+/// disable_on_error pauses the stream. A dead peer is still noticed when TCP fails.
+const REPLICATION_TIMEOUT_MS: u32 = 1_800_000;
+
+/// The source URL with wal_sender_timeout set for this connection (a USERSET parameter).
+fn replication_conninfo(url: &str) -> String {
+    format!("{url}{}options=-c%20wal_sender_timeout%3D{REPLICATION_TIMEOUT_MS}", if url.contains('?') { "&" } else { "?" })
 }
 
 pub fn psql(url: &str, statement: &str) -> R<String> {
