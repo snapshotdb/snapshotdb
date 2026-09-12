@@ -587,8 +587,10 @@ impl Branch {
             Engine::Postgres => {
                 // wal_level=logical lets any branch serve as a replication source. Clones get no
                 // apply workers, so an inherited subscription can never race the root for its slot.
+                // %b tags each log line with the backend type, so status can tell a replication
+                // worker's error from anybranch's own statements.
                 let mut opts = format!(
-                    "-c listen_addresses=127.0.0.1 -c port={port} -c unix_socket_directories='{}' -c wal_level=logical",
+                    "-c listen_addresses=127.0.0.1 -c port={port} -c unix_socket_directories='{}' -c wal_level=logical -c log_line_prefix='%m [%p] %b: '",
                     run.display()
                 );
                 if clone {
@@ -701,9 +703,17 @@ impl Branch {
     }
 
     /// Pick up tables that joined the publication since last time (new tables on production).
+    /// Only once the initial copy is done: a REFRESH during a large copy can stall the apply
+    /// worker past wal_receiver_timeout, which disable_on_error then turns into a pause.
     fn refresh(&self) {
         if self.engine == Engine::Postgres && self.source().is_some() && self.running() {
-            let _ = self.sql(&format!("ALTER SUBSCRIPTION {} REFRESH PUBLICATION", self.subname()));
+            let sub = self.subname();
+            let ready = self.sql(&format!(
+                "SELECT subenabled AND NOT EXISTS (SELECT 1 FROM pg_subscription_rel WHERE srsubstate <> 'r') FROM pg_subscription WHERE subname = '{sub}'"
+            ));
+            if ready.as_deref() == Ok("t") {
+                let _ = self.sql(&format!("ALTER SUBSCRIPTION {sub} REFRESH PUBLICATION"));
+            }
         }
     }
 
@@ -830,8 +840,11 @@ impl Branch {
                 let enabled = self.sql(&format!("SELECT subenabled FROM pg_subscription WHERE subname = '{sub}'"))?;
                 if enabled == "f" {
                     let (err, lsn) = self.last_apply_error();
-                    lines.push(("stream", format!("PAUSED after an apply error: {err}")));
-                    lines.push(("repair", format!("anybranch repair {} skips that transaction{}", self.name, lsn.map(|l| format!(" (at {l})")).unwrap_or_default())));
+                    lines.push(("stream", format!("PAUSED after an error: {err}")));
+                    lines.push(("repair", match lsn {
+                        Some(l) => format!("anybranch repair {} skips the transaction at {l} and resumes", self.name),
+                        None => format!("anybranch repair {} resumes (the error was not tied to a transaction)", self.name),
+                    }));
                 } else {
                     let stream = self.sql(
                         "SELECT coalesce(latest_end_lsn::text, '0/0') || ' ' || coalesce(extract(epoch FROM now() - last_msg_receipt_time)::int::text, '?') \
@@ -893,11 +906,18 @@ impl Branch {
         Ok(lines)
     }
 
-    /// Last apply-worker error in the Postgres log and the LSN that ends the failing transaction.
+    /// Last replication-worker error in the Postgres log and, when the error came from
+    /// applying one remote transaction, the LSN that ends it.
     fn last_apply_error(&self) -> (String, Option<String>) {
         let log = fs::read_to_string(self.run().join("log")).unwrap_or_default();
-        let err = log.lines().rev().find(|l| l.contains("ERROR:")).map(|l| l.split("ERROR:").nth(1).unwrap_or("").trim().to_string()).unwrap_or_else(|| "unknown".into());
-        let lsn = log.lines().rev().find_map(|l| l.split("finished at ").nth(1)).map(|s| s.trim().to_string());
+        let lines: Vec<&str> = log.lines().collect();
+        let at = lines
+            .iter()
+            .rposition(|l| l.contains("ERROR:") && l.contains("logical replication"))
+            .or_else(|| lines.iter().rposition(|l| l.contains("ERROR:") && !l.contains("ALTER SUBSCRIPTION") && !l.contains("already exists")));
+        let Some(at) = at else { return ("unknown".into(), None) };
+        let err = lines[at].split("ERROR:").nth(1).unwrap_or("").trim().to_string();
+        let lsn = lines[at..].iter().take(6).find_map(|l| l.split("finished at ").nth(1)).map(|s| s.trim().trim_end_matches('.').to_string());
         (err, lsn)
     }
 
@@ -913,10 +933,19 @@ impl Branch {
                     return Ok("replication is not paused; nothing to repair".into());
                 }
                 let (err, lsn) = self.last_apply_error();
-                let lsn = lsn.ok_or("paused, but no failing transaction found in run/log; check the log and ALTER SUBSCRIPTION ... ENABLE by hand")?;
-                self.sql(&format!("ALTER SUBSCRIPTION {sub} SKIP (lsn = '{lsn}')"))?;
-                self.sql(&format!("ALTER SUBSCRIPTION {sub} ENABLE"))?;
-                Ok(format!("skipped the transaction finishing at {lsn} ({err}) and resumed"))
+                match lsn {
+                    // A transaction the replica cannot apply: skip exactly that one.
+                    Some(lsn) => {
+                        self.sql(&format!("ALTER SUBSCRIPTION {sub} SKIP (lsn = '{lsn}')"))?;
+                        self.sql(&format!("ALTER SUBSCRIPTION {sub} ENABLE"))?;
+                        Ok(format!("skipped the transaction finishing at {lsn} ({err}) and resumed"))
+                    }
+                    // A timeout or connection error: nothing to skip, just resume.
+                    None => {
+                        self.sql(&format!("ALTER SUBSCRIPTION {sub} ENABLE"))?;
+                        Ok(format!("resumed; the pause was not tied to a transaction ({err})"))
+                    }
+                }
             }
             Engine::Mysql => {
                 let gtid = self.sql(
@@ -1430,8 +1459,11 @@ fn decode(s: &str) -> String {
 fn redact(url: &str) -> String {
     match (url.split_once("://"), url.rsplit_once('@')) {
         (Some((scheme, rest)), Some((_, host))) if rest.contains('@') => {
-            let user = rest.split(['@', ':']).next().unwrap_or("");
-            format!("{scheme}://{user}:***@{host}")
+            let auth = rest.split('@').next().unwrap_or("");
+            match auth.split_once(':') {
+                Some((user, _)) => format!("{scheme}://{user}:***@{host}"),
+                None => url.to_string(),
+            }
         }
         _ => url.to_string(),
     }
@@ -1707,6 +1739,7 @@ mod tests {
         assert_eq!((u.as_str(), p.as_str(), h.as_str(), port), ("repl", "p@ss", "db.example.com", 3307));
         assert_eq!(parse_url("mysql://root@127.0.0.1/").unwrap().3, 3306);
         assert_eq!(redact("postgresql://u:secret@h:5432/db"), "postgresql://u:***@h:5432/db");
+        assert_eq!(redact("postgresql://u@h:5432/db"), "postgresql://u@h:5432/db");
         assert_eq!(js("a\"b\n"), "\"a\\\"b\\n\"");
     }
 
