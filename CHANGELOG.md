@@ -23,6 +23,12 @@
   once per new branch, `source` rotation; `lock`/`unlock`.
 - Agent skill (`skills/anybranch/SKILL.md`), GitHub Actions e2e on a Btrfs loop mount with
   Postgres, MySQL, and MongoDB, release binaries for macOS and Linux.
+- Per-branch credentials: roots anybranch creates get a generated admin password and every
+  clone rotates to its own; Postgres trusts only its Unix socket, MongoDB runs with a keyFile.
+- Found at scale (88 GB Postgres, 4.5 GB MySQL, 9.8 GB MongoDB) and fixed: no publication
+  refresh during the initial copy; 30-minute replication timeouts on both sides so a long DDL
+  replay does not drop the link; `repair` re-enables without skipping when a pause was not
+  tied to a transaction; `status` reports the replication worker's error, not anybranch's own.
 
 ## 0.1.0
 
