@@ -38,6 +38,8 @@ const USAGE: &str = "usage:
                                                              keys: default_db, branch_sql (@file or SQL; several via --hook, run in name order), source
   anybranch lock|unlock <name>                               protect a branch from rm
   anybranch start|stop|rm <name>
+  anybranch up                                               after a reboot: proxies for every branch, engines for synced roots
+  anybranch service install|uninstall                        run `anybranch up` at login (launchd / systemd --user)
 env: ANYBRANCH_HOME (default ~/.anybranch)   ANYBRANCH_IDLE_MINUTES (default 5; 0 never suspends)";
 
 pub type R<T> = Result<T, String>;
@@ -134,6 +136,9 @@ fn main() {
         ["start", name] => Branch::load(name).and_then(|b| b.start().and(b.url())).map(|u| println!("{u}")),
         ["stop", name] => Branch::load(name).and_then(|b| b.stop()),
         ["rm", name] => Branch::load(name).and_then(|b| b.rm()),
+        ["up"] => up(),
+        ["service", "install"] => service(true),
+        ["service", "uninstall"] => service(false),
         ["_proxy", name] => proxy::serve(name),
         _ => Err(USAGE.to_string()),
     };
@@ -326,12 +331,13 @@ impl Branch {
         fs::read_to_string(self.run().join("eport")).ok()?.trim().parse().ok()
     }
 
-    fn proxy_pid(&self) -> Option<u32> {
-        live_pid(&self.run().join("proxypid"))
+    /// The proxy is alive and actually holding the public port (a pid alone can be stale after a reboot).
+    fn proxy_alive(&self) -> bool {
+        live_pid(&self.run().join("proxypid")).is_some() && self.port().map(|p| !port_free(p)).unwrap_or(false)
     }
 
     fn status_word(&self) -> &'static str {
-        match (self.engine, self.running(), self.proxy_pid().is_some(), self.source().is_some()) {
+        match (self.engine, self.running(), self.proxy_alive(), self.source().is_some()) {
             (Engine::Sqlite, ..) => "file",
             (_, true, _, true) => "syncing",
             (_, true, _, false) => "running",
@@ -345,7 +351,7 @@ impl Branch {
         if self.engine == Engine::Sqlite {
             return Ok(format!("sqlite:///{}", self.data().join("db.sqlite").display()));
         }
-        let port = self.port().filter(|_| self.proxy_pid().is_some() || self.running());
+        let port = self.port().filter(|_| self.proxy_alive() || self.running());
         let port = port.ok_or_else(|| format!("{0} is stopped; run: anybranch start {0}", self.name))?;
         Ok(self.url_on(port, true))
     }
@@ -436,7 +442,7 @@ impl Branch {
     }
 
     fn ensure_proxy(&self) -> R<()> {
-        if self.engine == Engine::Sqlite || self.proxy_pid().is_some() {
+        if self.engine == Engine::Sqlite || self.proxy_alive() {
             return Ok(());
         }
         let run = self.run();
@@ -487,7 +493,10 @@ impl Branch {
                 if clone {
                     opts += " -c max_logical_replication_workers=0";
                 }
-                sh(Command::new("pg_ctl").arg("-D").arg(&data).arg("-l").arg(run.join("log")).args(["-w", "-o", &opts, "start"]))?
+                // Without a locale in the environment (launchd, cron) macOS Postgres dies with
+                // "postmaster became multithreaded during startup"; the cluster's own locale is unaffected.
+                let locale = env::var("LC_ALL").or_else(|_| env::var("LANG")).unwrap_or_else(|_| "C".into());
+                sh(Command::new("pg_ctl").env("LC_ALL", locale).arg("-D").arg(&data).arg("-l").arg(run.join("log")).args(["-w", "-o", &opts, "start"]))?
             }
             Engine::Mongodb => {
                 // Every mongod is a single-node replica set, so change streams and transactions
@@ -657,7 +666,7 @@ impl Branch {
             }
         }
         self.stop()?;
-        if let Some(pid) = self.proxy_pid() {
+        if let Some(pid) = live_pid(&self.run().join("proxypid")) {
             let _ = sh(Command::new("kill").args(["-TERM", &pid.to_string()]));
         }
         if self.is_current() {
@@ -699,6 +708,14 @@ impl Branch {
                      WHEN 'd' THEN 'copying' WHEN 'f' THEN 'finishing' ELSE 'queued' END, ', ' ORDER BY s), 'none') \
                      FROM (SELECT srsubstate s, count(*) n FROM pg_subscription_rel GROUP BY 1) x",
                 )?));
+                if self.sql("SELECT count(*) FROM pg_subscription_rel WHERE srsubstate <> 'r'")? != "0" {
+                    let local: u64 = self.sql("SELECT coalesce(sum(pg_table_size(srrelid)), 0)::bigint FROM pg_subscription_rel")?.parse().unwrap_or(0);
+                    let remote: u64 = psql(&url, &format!(
+                        "SELECT coalesce(sum(pg_table_size(pr.prrelid)), 0)::bigint FROM pg_publication_rel pr JOIN pg_publication p ON p.oid = pr.prpubid WHERE p.pubname = '{sub}'"
+                    )).ok().and_then(|s| s.parse().ok()).unwrap_or(0);
+                    let pct = if remote > 0 { local * 100 / remote } else { 0 };
+                    lines.push(("initial copy", format!("{} of {} ({pct}%)", human(local), human(remote))));
+                }
                 let enabled = self.sql(&format!("SELECT subenabled FROM pg_subscription WHERE subname = '{sub}'"))?;
                 if enabled == "f" {
                     let (err, lsn) = self.last_apply_error();
@@ -1133,15 +1150,85 @@ fn finish(b: Branch, result: R<()>) -> R<Branch> {
     Ok(b)
 }
 
-fn list(json: bool) -> R<()> {
-    let Ok(entries) = fs::read_dir(home()) else { return Ok(()) };
-    let mut names: Vec<String> = entries
+fn all_branches() -> Vec<Branch> {
+    let mut names: Vec<String> = fs::read_dir(home())
+        .into_iter()
+        .flatten()
         .flatten()
         .filter_map(|e| e.file_name().into_string().ok())
         .filter(|n| !n.starts_with('.'))
         .collect();
     names.sort();
-    let branches: Vec<Branch> = names.iter().filter_map(|n| Branch::load(n).ok()).collect();
+    names.iter().filter_map(|n| Branch::load(n).ok()).collect()
+}
+
+/// After a reboot: every branch gets its proxy back so URLs work again, and synced roots
+/// restart so replication resumes. Everything else resumes on its first connection.
+fn up() -> R<()> {
+    for b in all_branches() {
+        if b.engine == Engine::Sqlite {
+            continue;
+        }
+        let result = if b.source().is_some() { b.start() } else { b.ensure_proxy() };
+        match result {
+            Ok(()) => println!("{}\t{}", b.name, b.status_word()),
+            Err(e) => eprintln!("{}\tfailed: {e}", b.name),
+        }
+    }
+    Ok(())
+}
+
+/// Run `anybranch up` at login: a launchd agent on macOS, a systemd user unit on Linux.
+fn service(install: bool) -> R<()> {
+    let exe = io(env::current_exe())?;
+    let path = env::var("PATH").unwrap_or_default();
+    let home_dir = home();
+    if cfg!(target_os = "macos") {
+        let plist = PathBuf::from(env::var("HOME").unwrap_or_default()).join("Library/LaunchAgents/dev.anybranch.up.plist");
+        let uid = out(Command::new("id").arg("-u"))?;
+        let _ = sh(Command::new("launchctl").args(["bootout", &format!("gui/{uid}/dev.anybranch.up")]));
+        if !install {
+            let _ = fs::remove_file(&plist);
+            return Ok(println!("removed {}", plist.display()));
+        }
+        io(fs::create_dir_all(plist.parent().unwrap()))?;
+        io(fs::write(&plist, format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+             <plist version=\"1.0\"><dict>\n  <key>Label</key><string>dev.anybranch.up</string>\n  \
+             <key>ProgramArguments</key><array><string>{}</string><string>up</string></array>\n  \
+             <key>RunAtLoad</key><true/>\n  <key>AbandonProcessGroup</key><true/>\n  \
+             <key>EnvironmentVariables</key><dict><key>PATH</key><string>{}</string><key>ANYBRANCH_HOME</key><string>{}</string></dict>\n  \
+             <key>StandardOutPath</key><string>{}/up.log</string><key>StandardErrorPath</key><string>{}/up.log</string>\n</dict></plist>\n",
+            exe.display(), xml(&path), xml(&home_dir.display().to_string()), home_dir.display(), home_dir.display()
+        )))?;
+        sh(Command::new("launchctl").args(["bootstrap", &format!("gui/{uid}")]).arg(&plist))?;
+        println!("installed {} (runs `anybranch up` at login)", plist.display());
+    } else {
+        let unit = PathBuf::from(env::var("HOME").unwrap_or_default()).join(".config/systemd/user/anybranch.service");
+        if !install {
+            let _ = sh(Command::new("systemctl").args(["--user", "disable", "--now", "anybranch"]));
+            let _ = fs::remove_file(&unit);
+            return Ok(println!("removed {}", unit.display()));
+        }
+        io(fs::create_dir_all(unit.parent().unwrap()))?;
+        io(fs::write(&unit, format!(
+            "[Unit]\nDescription=anybranch: bring database branches back after boot\n\n[Service]\nType=oneshot\nExecStart={} up\n\
+             Environment=PATH={}\nEnvironment=ANYBRANCH_HOME={}\n\n[Install]\nWantedBy=default.target\n",
+            exe.display(), path, home_dir.display()
+        )))?;
+        sh(Command::new("systemctl").args(["--user", "daemon-reload"]))?;
+        sh(Command::new("systemctl").args(["--user", "enable", "--now", "anybranch"]))?;
+        println!("installed {} (runs `anybranch up` at login)", unit.display());
+    }
+    Ok(())
+}
+
+fn xml(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+fn list(json: bool) -> R<()> {
+    let branches = all_branches();
     if json {
         let items: R<Vec<String>> = branches.iter().map(|b| b.info_json()).collect();
         println!("[{}]", items?.join(","));
@@ -1233,6 +1320,17 @@ fn redact(url: &str) -> String {
         }
         _ => url.to_string(),
     }
+}
+
+fn human(bytes: u64) -> String {
+    let mut v = bytes as f64;
+    for unit in ["B", "KB", "MB", "GB", "TB"] {
+        if v < 1024.0 || unit == "TB" {
+            return if unit == "B" { format!("{bytes} B") } else { format!("{v:.1} {unit}") };
+        }
+        v /= 1024.0;
+    }
+    unreachable!()
 }
 
 /// JSON string literal.
@@ -1390,9 +1488,10 @@ fn ddl_replica_sql(sub: &str) -> String {
 CREATE FUNCTION {sub}.apply_ddl() RETURNS trigger LANGUAGE plpgsql AS $f$
 BEGIN
   -- The apply worker runs with an empty search_path; replay with the one the statement was written under.
+  -- CONCURRENTLY cannot run inside the apply transaction; on a replica the plain form is fine.
   BEGIN
     PERFORM set_config('search_path', NEW.search_path, true);
-    EXECUTE NEW.sql;
+    EXECUTE regexp_replace(NEW.sql, '\\mCONCURRENTLY\\M', '', 'gi');
   EXCEPTION WHEN OTHERS THEN NEW.error := SQLERRM;
   END;
   RETURN NEW;
@@ -1419,15 +1518,17 @@ const MONGO_TAIL_JS: &str = "
 const fs = require('fs');
 const src = new Mongo(process.env.SRC);
 const run = process.env.RUN;
-const opts = { fullDocument: 'updateLookup' };
+const opts = { fullDocument: 'updateLookup', showExpandedEvents: true };
 try { opts.resumeAfter = JSON.parse(fs.readFileSync(run + '/token', 'utf8')); } catch (e) {}
 const stream = src.watch([], opts);
 while (true) {
   const e = stream.tryNext();
   if (!e) { sleep(200); continue; }
   try {
-    const coll = e.ns && e.ns.coll ? db.getSiblingDB(e.ns.db).getCollection(e.ns.coll) : null;
+    const dbh = e.ns ? db.getSiblingDB(e.ns.db) : null;
+    const coll = e.ns && e.ns.coll ? dbh.getCollection(e.ns.coll) : null;
     const id = e.documentKey ? e.documentKey._id : null;
+    const desc = e.operationDescription || {};
     switch (e.operationType) {
       case 'insert': case 'update': case 'replace':
         if (e.fullDocument) coll.replaceOne({ _id: id }, e.fullDocument, { upsert: true });
@@ -1436,7 +1537,11 @@ while (true) {
       case 'delete': coll.deleteOne({ _id: id }); break;
       case 'drop': coll.drop(); break;
       case 'rename': coll.renameCollection(e.to.coll, true); break;
-      case 'dropDatabase': db.getSiblingDB(e.ns.db).dropDatabase(); break;
+      case 'dropDatabase': dbh.dropDatabase(); break;
+      case 'create': { const { idIndex, ...options } = desc; dbh.createCollection(e.ns.coll, options); break; }
+      case 'createIndexes': dbh.runCommand({ createIndexes: e.ns.coll, indexes: desc.indexes }); break;
+      case 'dropIndexes': for (const ix of desc.indexes || []) coll.dropIndex(ix.name); break;
+      case 'modify': dbh.runCommand(Object.assign({ collMod: e.ns.coll }, desc)); break;
     }
   } catch (err) {
     fs.appendFileSync(run + '/tail.errors', JSON.stringify({ at: new Date().toISOString(), op: e.operationType, ns: e.ns, id: e.documentKey, error: String(err) }) + '\\n');

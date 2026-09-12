@@ -27,6 +27,14 @@ differences: it runs on your machine, uses Postgres logical replication, MySQL G
 replication, and MongoDB change streams instead of a proprietary pipeline, and is not limited
 to Postgres.
 
+## Install
+
+```sh
+cargo install --git https://github.com/GitHoobar/anybranch      # with a Rust toolchain
+# or download a binary for macOS (arm64, x86_64) or Linux (x86_64, aarch64) from the Releases page
+anybranch service install                                        # optional: restore branches at login
+```
+
 ## Commands
 
 ```

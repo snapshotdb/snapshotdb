@@ -105,7 +105,8 @@ fn postgres(url: &str, schemas: &str) -> R<Report> {
         EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rds_superuser') AND pg_has_role(current_user, 'rds_superuser', 'MEMBER'), \
         has_database_privilege(current_database(), 'CREATE'), current_user, \
         (SELECT rolreplication FROM pg_roles WHERE rolname = current_user), \
-        EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rds_replication') AND pg_has_role(current_user, 'rds_replication', 'MEMBER')") {
+        EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rds_replication') AND pg_has_role(current_user, 'rds_replication', 'MEMBER'), \
+        current_setting('max_slot_wal_keep_size')") {
         Ok(row) => row,
         Err(e) => return Ok(unreachable_report("connection", e, "check host, port, credentials and that the server allows this client (pg_hba.conf)")),
     };
@@ -163,6 +164,8 @@ fn postgres(url: &str, schemas: &str) -> R<Report> {
         check("can publish tables", unowned.is_empty(), if unowned.is_empty() { String::new() } else { format!("not owner of {}", unowned.join(", ")) }, if unowned.is_empty() { String::new() } else { format!("a publication needs the table owner: run as the owner, or ALTER TABLE ... OWNER TO \"{user}\"") }),
         check("can create schema", f[9] == "t", "", "GRANT CREATE ON DATABASE <db> TO the user (for the DDL log table)"),
         warn("can create event trigger", superish, if superish { "superuser" } else { "not superuser" }, if superish { "" } else { "schema changes will not replicate; use a superuser (RDS: rds_superuser) or rm and sync again after migrations" }),
+        warn("slot wal limit", f.get(13) != Some(&"-1"), format!("max_slot_wal_keep_size = {}", f.get(13).unwrap_or(&"?")),
+            if f.get(13) == Some(&"-1") { "unbounded: a stopped replica retains WAL on the source forever; consider ALTER SYSTEM SET max_slot_wal_keep_size = '50GB' (beyond it the slot is invalidated; rm and sync again)" } else { "" }),
         warn("replica identity", unkeyed.is_empty(), if unkeyed.is_empty() { String::new() } else { format!("{} tables without a primary key are skipped", unkeyed.len()) }, if unkeyed.is_empty() { String::new() } else { format!("include them with --fix-replica-identity, or run on the source:\n{}", unkeyed.join("\n")) }),
         duplicate_source(url),
     ];

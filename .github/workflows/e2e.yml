@@ -12,6 +12,11 @@ jobs:
           truncate -s 4G /tmp/btrfs.img && sudo mkfs.btrfs -q /tmp/btrfs.img
           sudo mkdir -p /mnt/anybranch && sudo mount -o loop /tmp/btrfs.img /mnt/anybranch
           sudo chown "$USER" /mnt/anybranch
+      - name: MongoDB server, shell, and tools
+        run: |
+          curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | sudo gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg
+          echo "deb [signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg] https://repo.mongodb.org/apt/ubuntu noble/mongodb-org/8.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list >/dev/null
+          sudo apt-get update -qq >/dev/null && sudo apt-get install -y -qq mongodb-org-server mongodb-mongosh mongodb-database-tools >/dev/null
       - name: Engines on PATH
         run: |
           echo "/usr/lib/postgresql/$(ls /usr/lib/postgresql | sort -n | tail -1)/bin" >> "$GITHUB_PATH"

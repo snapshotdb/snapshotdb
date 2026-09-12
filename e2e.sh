@@ -14,6 +14,7 @@ fail=0
 check() { if [ "$2" = "$3" ]; then echo "  ok   $1 = $2"; else echo "  FAIL $1: got '$2' want '$3'"; fail=1; fi; }
 waitfor() { for _ in $(seq 1 120); do v=$(eval "$1" 2>/dev/null); [ "$v" = "$2" ] && break; sleep 0.3; done; check "$3" "$v" "$2"; }
 port() { local u; u=$($B url "$1"); u=${u##*:}; echo "${u%%/*}"; }
+st() { $B list | sed 's/^[* ] //' | awk -F'\t' -v n="$1" '$1==n{print $4}'; }
 
 if command -v pg_ctl >/dev/null; then
   echo "postgres"
@@ -34,10 +35,13 @@ update users set email = 'e' where id = 1;
 create table orders(id serial primary key, amt int);
 insert into orders(amt) values (7);
 create index concurrently users_email on users(email);
+create role reporter;
+grant select on users to reporter;
 SQL
   waitfor "psql '$PROD' -Atc \"select email from users where id = 1\"" e "column added on production appears on replica"
   waitfor "$B status prod >/dev/null; psql '$PROD' -Atc 'select count(*) from orders'" 1 "new table joins replication after refresh"
-  $B status prod | grep -q '1 failed'; check "non-replayable DDL is recorded, not fatal" "$?" 0
+  waitfor "psql '$PROD' -Atc \"select count(*) from pg_indexes where indexname = 'users_email'\"" 1 "CREATE INDEX CONCURRENTLY replayed as a plain index"
+  $B status prod | grep -q '1 failed'; check "non-replayable DDL (grant to a role only on source) is recorded, not fatal" "$?" 0
   $B status prod | grep -q 'retaining'; check "status shows WAL retained on source" "$?" 0
   # a poisoned transaction: the replica already has id 5000, production inserts it too
   psql "$PROD" -Atqc "insert into users(id, name) values (5000, 'local')"
@@ -62,12 +66,21 @@ SQL
   waitfor "psql '$PROD' -Atc \"select count(*) from users where name = 'after-branch'\"" 1 "replica keeps streaming after branch"
   check "branch isolated from later production writes" "$(psql "$DEV" -Atc "select count(*) from users where name = 'after-branch'")" 0
   # suspend and resume through the proxy
-  $B stop dev; check "stopped branch shows suspended" "$($B list | awk '$2=="dev"{print $5}')" suspended
+  $B stop dev; check "stopped branch shows suspended" "$(st dev)" suspended
   check "connecting to a suspended branch resumes it" "$(psql "$DEV" -Atc 'select 1')" 1
-  check "branch running again" "$($B list | awk '$2=="dev"{print $5}')" running
+  check "branch running again" "$(st dev)" running
   $B create dev2 --from prod --format json | grep -q '"name":"dev2","engine":"postgres","parent":"prod"'; check "create --format json" "$?" 0
   $B lock prod; $B rm prod >/dev/null 2>&1; check "locked root refuses rm" "$?" 1
   $B unlock prod
+  # simulate a reboot: kill every proxy and engine, then `up`
+  for b in src prod dev dev2; do kill -TERM "$(cat "$ANYBRANCH_HOME/$b/run/proxypid")" 2>/dev/null; $B stop "$b" 2>/dev/null; done; sleep 1
+  check "after 'reboot' URLs are dead" "$(st dev)" stopped
+  $B up >/dev/null
+  check "up restores the synced root" "$(st prod)" syncing
+  check "up restores branch proxies (suspended, resume on connect)" "$(st dev)" suspended
+  check "URL unchanged across the reboot" "$($B url dev)" "$DEV"
+  check "branch resumes on first connection after reboot" "$(psql "$DEV" -Atc 'select 1')" 1
+  $B start src >/dev/null
   $B reset dev >/dev/null
   check "reset re-clones from replica (no seeded row twice)" "$(psql "$($B url dev)" -Atc "select count(*) from users where name = 'seeded'")" 1
   $B rm dev; $B rm dev2; $B rm prod
@@ -126,6 +139,9 @@ if command -v mongod >/dev/null && command -v mongosh >/dev/null; then
     waitfor "mq '$RU' 'print(db.getSiblingDB(\"app\").t.findOne({_id:1}).v)'" 9 "update replicated"
     waitfor "mq '$RU' 'print(db.getSiblingDB(\"app\").t.countDocuments({_id:2}))'" 0 "delete replicated"
     check "insert replicated" "$(mq "$RU" 'print(db.getSiblingDB("app").t.countDocuments({_id:5}))')" 1
+    mq "$U" 'db.getSiblingDB("app").t.createIndex({v: 1}, {name: "v_1"}); db.getSiblingDB("app").createCollection("logs", {capped: true, size: 1048576})' >/dev/null
+    waitfor "mq '$RU' 'print(db.getSiblingDB(\"app\").t.getIndexes().some(i => i.name === \"v_1\"))'" true "index created on source appears on replica"
+    waitfor "mq '$RU' 'print(db.getSiblingDB(\"app\").getCollectionInfos({name: \"logs\"})[0].options.capped)'" true "collection options replicated"
     $B status mrep | grep -q tailing; check "status reports tailing" "$?" 0
     $B create mdev --from mrep >/dev/null; DU=$($B url mdev)
     mq "$U" 'db.getSiblingDB("app").t.insertOne({_id:6})' >/dev/null
@@ -137,6 +153,6 @@ if command -v mongod >/dev/null && command -v mongosh >/dev/null; then
   $B rm mg2; $B rm mg
 fi
 
-check "no proxies left" "$(pgrep -f 'anybranch _proxy' | wc -l | tr -d ' ')" 0
+check "no proxies left" "$(pgrep -f 'anybranch _proxy (src|prod|dev|dev2|msrc|mrep|mdev|mg|mg2)$' | wc -l | tr -d ' ')" 0
 rm -rf "$ANYBRANCH_HOME"
 [ $fail = 0 ] && echo "all passed" || { echo "FAILURES"; exit 1; }
