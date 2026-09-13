@@ -257,11 +257,15 @@ impl Drop for Hold {
 impl Branch {
     fn new(name: &str, engine: Engine) -> R<Branch> {
         remote::validate_name(name)?;
-        let b = Branch { name: name.into(), dir: home().join(name), engine };
+        let mut b = Branch { name: name.into(), dir: home().join(name), engine };
         if b.dir.exists() {
             return Err(format!("branch {name} already exists"));
         }
         io(fs::create_dir_all(b.run()))?;
+        // The sandbox mounts canonical paths. New branches must use the same
+        // physical path as loaded branches, including when the server home is
+        // a symlink to a separately mounted BYOC data volume.
+        b.dir = io(fs::canonicalize(&b.dir))?;
         io(fs::write(b.dir.join("engine"), engine.name()))?;
         Ok(b)
     }

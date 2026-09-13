@@ -1,0 +1,125 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Anybranch private BYOC appliance with retained encrypted Btrfs data volume
+Parameters:
+  ImageId:
+    Type: AWS::EC2::Image::Id
+    Description: Account-private AMI produced by aws.pkr.hcl in this region
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  SubnetId:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subnet in the selected AvailabilityZone, with operator connectivity
+  AvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+  OperatorCidr:
+    Type: String
+    AllowedPattern: '(\d{1,3}\.){3}\d{1,3}/(3[0-2]|[12]?[0-9])'
+    Description: Trusted operator/VPN CIDR for SSH; use a /32 for one operator
+  InstanceType:
+    Type: String
+    Default: m6i.xlarge
+    AllowedValues: [m6i.large, m6i.xlarge, m6i.2xlarge, m6i.4xlarge, m6i.8xlarge]
+  DataGiB:
+    Type: Number
+    Default: 100
+    MinValue: 20
+    MaxValue: 16384
+  DataIops:
+    Type: Number
+    Default: 3000
+    MinValue: 3000
+    MaxValue: 16000
+  DataThroughput:
+    Type: Number
+    Default: 125
+    MinValue: 125
+    MaxValue: 1000
+Resources:
+  Network:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Anybranch operator SSH only; API and databases stay on loopback
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref OperatorCidr
+  Data:
+    Type: AWS::EC2::Volume
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone
+      Encrypted: true
+      VolumeType: gp3
+      Size: !Ref DataGiB
+      Iops: !Ref DataIops
+      Throughput: !Ref DataThroughput
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-data-retained'
+  Server:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: !Ref InstanceType
+      KeyName: !Ref KeyName
+      SubnetId: !Ref SubnetId
+      AvailabilityZone: !Ref AvailabilityZone
+      SecurityGroupIds: [!Ref Network]
+      MetadataOptions:
+        HttpTokens: required
+        HttpEndpoint: enabled
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            Encrypted: true
+            VolumeType: gp3
+            VolumeSize: 24
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-server'
+        - Key: Project
+          Value: anybranch
+      UserData:
+        Fn::Base64: !Sub |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          # Wait for exactly the volume created by this stack, identified by EBS serial.
+          expected=$(echo '${Data}' | tr -d '-')
+          device=''
+          for attempt in $(seq 1 180); do
+            device=$(lsblk -dnpo NAME,SERIAL | awk -v serial="$expected" '$2 == serial {print $1}')
+            [ -n "$device" ] && break
+            sleep 2
+          done
+          [ -n "$device" ]
+          [ "$(lsblk -nr "$device" | wc -l)" = 1 ]
+          # Refuse any recognized filesystem/partition signature; never reformat retained data.
+          signatures=$(wipefs --no-act --noheadings --output TYPE "$device")
+          [ -z "$signatures" ]
+          mkfs.btrfs -q "$device"
+          mkdir -p /mnt/anybranch-data
+          uuid=$(blkid -s UUID -o value "$device")
+          echo "UUID=$uuid /mnt/anybranch-data btrfs defaults,noatime 0 0" >> /etc/fstab
+          mount /mnt/anybranch-data
+          anybranch-initialize /mnt/anybranch-data
+  Attachment:
+    Type: AWS::EC2::VolumeAttachment
+    Properties:
+      Device: /dev/sdf
+      InstanceId: !Ref Server
+      VolumeId: !Ref Data
+Outputs:
+  InstanceId:
+    Value: !Ref Server
+  DataVolumeId:
+    Value: !Ref Data
+  PrivateIp:
+    Value: !GetAtt Server.PrivateIp
+  DeploymentCheck:
+    Value: 'Check cloud-init status --wait and systemctl status anybranch over SSH before use. Stack creation alone does not certify application readiness.'

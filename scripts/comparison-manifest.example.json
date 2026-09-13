@@ -1,0 +1,37 @@
+{
+  "client": {"region": "us-east-1", "host": "record-instance-id"},
+  "anybranch": {
+    "region": "us-east-1",
+    "availability_zone": null,
+    "instance_type": "m6i.xlarge",
+    "instance_count": 1,
+    "cpu_limit": null,
+    "memory_limit_bytes": null,
+    "storage_type": "gp3",
+    "storage_iops": 3000,
+    "storage_mib_per_second": 125,
+    "postgres_version": null,
+    "durability": null,
+    "background_load": null,
+    "prepared_capacity": 0,
+    "transport": "loopback",
+    "evidence": null
+  },
+  "ardent": {
+    "region": "us-east-1",
+    "availability_zone": null,
+    "instance_type": "m6i.xlarge",
+    "instance_count": null,
+    "cpu_limit": null,
+    "memory_limit_bytes": null,
+    "storage_type": null,
+    "storage_iops": null,
+    "storage_mib_per_second": null,
+    "postgres_version": null,
+    "durability": null,
+    "background_load": null,
+    "prepared_capacity": null,
+    "transport": "TLS",
+    "evidence": null
+  }
+}

@@ -39,6 +39,9 @@ cargo install --path . --locked      # build the client/server version from this
 ```
 
 Deploy the server before using database commands: see [server deployment](docs/server.md).
+For a customer-owned AWS deployment, see the [BYOC appliance and deployment template](deploy/byoc/README.md).
+The [strict comparison protocol](docs/strict-comparison.md) separates measured branch
+latency from unverified infrastructure and product parity.
 The client/server change is unreleased; older v0.3.0 release binaries still use local storage.
 Without `ANYBRANCH_SERVER`, the client fails; it never falls back to a local database copy.
 The client only needs the Anybranch binary. Engine binaries and copy-on-write storage belong
@@ -91,7 +94,7 @@ Binaries are found on `PATH`: `pg_ctl initdb psql pg_dump pg_dumpall`, `mysqld m
 `mongod mongosh` plus `mongodump mongorestore` for sync. Every mongod runs as a single-node
 replica set, so transactions and change streams work on branches too.
 
-Verified by `./e2e.sh` on macOS (APFS) for all four engines and on Linux (Btrfs) in CI,
+The current server is verified by `./e2e.sh` on Linux (Btrfs) in CI,
 including preflight, sync, schema changes, a poisoned transaction repaired, suspend and
 resume, a simulated reboot, credentials, settings, and teardown.
 

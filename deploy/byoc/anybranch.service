@@ -1,0 +1,24 @@
+[Unit]
+Description=Anybranch BYOC database branching server
+After=network-online.target
+Wants=network-online.target
+RequiresMountsFor=/srv/anybranch
+ConditionPathExists=/etc/anybranch.env
+
+[Service]
+Type=simple
+User=anybranch
+Group=anybranch
+EnvironmentFile=/etc/anybranch.env
+Environment=USER=anybranch
+Environment=PATH=/usr/lib/postgresql/16/bin:/usr/local/bin:/usr/sbin:/usr/bin:/bin
+ExecStart=/usr/local/bin/anybranch serve --bind 127.0.0.1:7432 --db-bind 127.0.0.1 --public-host 127.0.0.1
+Restart=on-failure
+RestartSec=5
+UMask=0077
+KillMode=mixed
+TimeoutStopSec=120
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
