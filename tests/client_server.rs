@@ -214,15 +214,26 @@ fn authenticated_jobs_execute_only_in_server_storage() {
             .read_to_string()
             .unwrap()
     };
+    run(&["settings", "fixture", "set", "branch_sql", "SELECT missing_initialization_function()"]);
+    let failed = cli(&f.base).env("ANYBRANCH_SERVER", &f.url).env("ANYBRANCH_TOKEN", TOKEN)
+        .args(["create", "failed-hook", "--from", "fixture", "--print-url"]).output().unwrap();
+    assert!(!failed.status.success());
+    assert!(failed.stdout.is_empty(), "failed initialization must not return a URL");
+    assert!(!f.base.join("server/failed-hook").exists());
+    run(&["settings", "fixture", "remove", "branch_sql"]);
     let source = run(&["url", "fixture"]);
     assert!(source.starts_with("http://127.0.0.1:"));
     query(&source, "CREATE TABLE t(x INTEGER)");
     query(&source, "INSERT INTO t VALUES(1)");
+    run(&["settings", "fixture", "set", "branch_sql", "CREATE TABLE initialized(x); INSERT INTO initialized VALUES(1)"]);
     run(&["prepare", "snap", "--from", "fixture", "--count", "2"]);
+    run(&["settings", "fixture", "remove", "branch_sql"]);
     query(&source, "UPDATE t SET x=99");
     let first = run(&["create", "agent1", "--from", "snap", "--print-url"]);
     let second = run(&["create", "agent2", "--from", "snap", "--print-url"]);
     assert_ne!(first, second);
+    assert!(query(&first, "SELECT count(*) FROM initialized").contains("[[1]]"));
+    assert!(query(&second, "SELECT count(*) FROM initialized").contains("[[1]]"));
     assert!(query(&first, "SELECT x FROM t").contains("[[1]]"));
     query(&first, "UPDATE t SET x=42");
     assert!(query(&second, "SELECT x FROM t").contains("[[1]]"));
@@ -268,6 +279,18 @@ fn authenticated_jobs_execute_only_in_server_storage() {
     let rollback = serde_json::json!({"statements":[{"sql":"UPDATE t SET x=500"},{"sql":"SELECT * FROM missing_table"}]}).to_string();
     assert!(ureq::post(&first).send(rollback).is_err());
     assert!(query(&first, "SELECT x FROM t").contains("[[42]]"));
+    let legacy_url = run(&["create", "legacy", "--from", "fixture", "--print-url"]);
+    run(&["settings", "fixture", "set", "branch_sql", "UPDATE t SET x=0"]);
+    let legacy_run = f.base.join("server/legacy/run");
+    fs::remove_file(legacy_run.join("branch_sql.done-v1")).unwrap();
+    fs::remove_file(legacy_run.join("ready-v1")).unwrap();
+    fs::write(legacy_run.join("branch_sql.done"), "").unwrap();
+    for args in [["start", "legacy"], ["url", "legacy"]] {
+        assert!(!cli(&f.base).env("ANYBRANCH_SERVER", &f.url).env("ANYBRANCH_TOKEN", TOKEN)
+            .args(args).output().unwrap().status.success());
+    }
+    assert!(ureq::post(legacy_url).send(r#"{"statements":[{"sql":"SELECT * FROM t"}]}"#).is_err());
+    run(&["rm", "legacy"]);
     for name in ["agent1", "agent2", "snap", "fixture"] {
         run(&["rm", name]);
     }

@@ -13,6 +13,7 @@ mod proxy;
 mod remote;
 mod pool;
 mod sqlite;
+mod sandbox;
 
 use std::{
     collections::HashMap,
@@ -382,6 +383,59 @@ impl Branch {
         io(fs::write(home().join(".current"), &self.name))
     }
 
+    /// Public branch credentials never grant server administration or filesystem
+    /// access. Maintenance keeps a separate password outside the engine sandbox.
+    fn ensure_agent_credentials(&self) -> R<()> {
+        if self.parent().is_none() || self.engine == Engine::Sqlite { return Ok(()); }
+        if !self.managed() { return Err("agent branches require a managed root; sync the source instead of importing an unmanaged directory".into()); }
+        if self.dir.join("agent-password").exists() { return Ok(()); }
+        let password = random_password()?;
+        let admin_password = random_password()?;
+        match self.engine {
+            Engine::Postgres => {
+                let admin = self.admin_user().replace('"', "\"\"");
+                self.sql(&format!(
+                    "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='anybranch_agent') THEN CREATE ROLE anybranch_agent; END IF; END $$; \
+                     ALTER ROLE anybranch_agent LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '{password}'; \
+                     ALTER ROLE anybranch_agent RESET ALL; \
+                     DO $$ DECLARE r record; BEGIN FOR r IN SELECT roleid::regrole AS role FROM pg_auth_members WHERE member='anybranch_agent'::regrole LOOP \
+                     EXECUTE format('REVOKE %s FROM anybranch_agent', r.role); END LOOP; \
+                     IF EXISTS (SELECT FROM pg_auth_members WHERE member='anybranch_agent'::regrole) THEN RAISE EXCEPTION 'agent role still has inherited memberships'; END IF; \
+                     FOR r IN SELECT d.datname FROM pg_db_role_setting s JOIN pg_database d ON d.oid=s.setdatabase WHERE s.setrole='anybranch_agent'::regrole LOOP \
+                     EXECUTE format('ALTER ROLE anybranch_agent IN DATABASE %I RESET ALL',r.datname); END LOOP; END $$; \
+                     DO $$ DECLARE r record; BEGIN \
+                     EXECUTE format('ALTER DATABASE %I OWNER TO anybranch_agent', current_database()); \
+                     FOR r IN SELECT nspname FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' LOOP \
+                       EXECUTE format('ALTER SCHEMA %I OWNER TO anybranch_agent', r.nspname); END LOOP; \
+                     FOR r IN SELECT c.oid::regclass AS obj, c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace \
+                       WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' AND c.relkind IN ('r','p','v','m','S','f') AND NOT (c.relkind='S' AND EXISTS (SELECT FROM pg_depend d WHERE d.objid=c.oid AND d.deptype IN ('a','i'))) LOOP \
+                       EXECUTE format('ALTER %s %s OWNER TO anybranch_agent', CASE r.relkind WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW' WHEN 'S' THEN 'SEQUENCE' WHEN 'f' THEN 'FOREIGN TABLE' ELSE 'TABLE' END, r.obj); END LOOP; \
+                     FOR r IN SELECT p.oid::regprocedure AS obj,p.prokind FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace \
+                       WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' LOOP \
+                       EXECUTE format('ALTER %s %s OWNER TO anybranch_agent', CASE r.prokind WHEN 'p' THEN 'PROCEDURE' WHEN 'a' THEN 'AGGREGATE' ELSE 'FUNCTION' END,r.obj); END LOOP; \
+                     FOR r IN SELECT t.oid::regtype AS obj FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace \
+                       WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' AND t.typtype IN ('e','d') LOOP \
+                       EXECUTE format('ALTER TYPE %s OWNER TO anybranch_agent',r.obj); END LOOP; END $$; \
+                     ALTER ROLE \"{admin}\" PASSWORD '{admin_password}';"
+                ))?;
+            }
+            Engine::Mysql => {
+                self.sql(&format!("DROP USER IF EXISTS 'anybranch_agent'@'localhost'; CREATE USER 'anybranch_agent'@'localhost' IDENTIFIED BY '{password}';"))?;
+                let dbs = self.sql("SHOW DATABASES")?;
+                for db in dbs.lines().filter(|d| !matches!(*d, "Database" | "mysql" | "sys" | "information_schema" | "performance_schema")) {
+                    self.sql(&format!("GRANT ALL PRIVILEGES ON `{}`.* TO 'anybranch_agent'@'localhost'", db.replace('`', "``")))?;
+                }
+                self.sql(&format!("ALTER USER 'root'@'localhost' IDENTIFIED BY '{admin_password}'"))?;
+            }
+            Engine::Mongodb => {
+                self.sql(&format!("const a=db.getSiblingDB('admin'); if(a.getUser('anybranch_agent')) a.dropUser('anybranch_agent'); a.createUser({{user:'anybranch_agent',pwd:'{password}',roles:['readWriteAnyDatabase','dbAdminAnyDatabase']}}); a.changeUserPassword('anybranch','{admin_password}');"))?;
+            }
+            Engine::Sqlite => unreachable!(),
+        }
+        write_secret(&self.dir.join("password"), &admin_password)?;
+        write_secret(&self.dir.join("agent-password"), &password)
+    }
+
     fn is_current(&self) -> bool {
         fs::read_to_string(home().join(".current")).map(|c| c == self.name).unwrap_or(false)
     }
@@ -430,6 +484,9 @@ impl Branch {
     /// Public URL through the proxy. Valid while the branch is suspended: connecting resumes it.
     pub fn url(&self) -> R<String> {
         if pool::is_snapshot(self) { return Err("prepared snapshots are immutable; create a branch from this snapshot".into()); }
+        if self.parent().is_some() && !self.run().join("ready-v1").exists() {
+            return Err("branch initialization has not completed; start the branch before requesting its URL".into());
+        }
         if self.engine == Engine::Sqlite {
             return sqlite::url(self);
         }
@@ -455,8 +512,10 @@ impl Branch {
     fn url_on(&self, port: u16, public: bool) -> String {
         let host = if public { env::var("ANYBRANCH_PUBLIC_HOST").unwrap_or_else(|_| "127.0.0.1".into()) } else { "127.0.0.1".into() };
         let db = self.database();
-        let user = self.admin_user();
-        let pw = if public { self.password() } else { self.inherited_password() };
+        let agent = public && self.parent().is_some() && self.managed();
+        let user = if agent { "anybranch_agent".into() } else { self.admin_user() };
+        let pw = if agent { fs::read_to_string(self.dir.join("agent-password")).ok() }
+            else if public { self.password() } else { self.inherited_password() };
         let cred = match &pw {
             Some(pw) => format!("{user}:{pw}@"),
             None => format!("{user}@"),
@@ -563,7 +622,10 @@ impl Branch {
     pub fn start(&self) -> R<()> {
         pool::writable(self)?;
         if self.engine == Engine::Sqlite {
+            let _hold = self.hold()?;
             self.ensure_credentials()?;
+            self.initialize_hooks()?;
+            io(fs::write(self.run().join("ready-v1"), ""))?;
             return self.ensure_proxy();
         }
         self.ensure_proxy()?;
@@ -601,17 +663,23 @@ impl Branch {
     /// Start the engine behind the proxy (also what the proxy calls to resume).
     pub fn start_engine(&self) -> R<()> {
         pool::writable(self)?;
-        if self.engine == Engine::Sqlite || self.running() {
+        if self.engine == Engine::Sqlite || (self.running() && self.run().join("ready-v1").exists()) {
             return Ok(());
         }
         let _hold = self.hold()?;
-        if self.running() {
-            return Ok(()); // someone else started it while we waited
+        if self.running() && self.run().join("ready-v1").exists() {
+            return Ok(()); // someone else completed initialization while we waited
         }
         let (data, run) = (self.data(), self.run());
+        let clone = self.parent().is_some();
+        // Existing deployments must not label an old, unsandboxed process ready.
+        if clone && self.running() && !run.join("sandbox-v1").exists() {
+            self.stop()?;
+        }
+        if !self.running() {
         let port = free_port();
         io(fs::write(run.join("eport"), port.to_string()))?;
-        let clone = self.parent().is_some();
+        let _ = fs::remove_file(run.join("ready-v1"));
         match self.engine {
             Engine::Postgres => {
                 // wal_level=logical lets any branch serve as a replication source. Clones get no
@@ -629,12 +697,15 @@ impl Branch {
                 // Without a locale in the environment (launchd, cron) macOS Postgres dies with
                 // "postmaster became multithreaded during startup"; the cluster's own locale is unaffected.
                 let locale = env::var("LC_ALL").or_else(|_| env::var("LANG")).unwrap_or_else(|_| "C".into());
-                sh(Command::new("pg_ctl").env("LC_ALL", locale).arg("-D").arg(&data).arg("-l").arg(run.join("log")).args(["-w", "-o", &opts, "start"]))?
+                sh(sandbox::command(self, "pg_ctl")?.env("LC_ALL", locale).arg("-D").arg(&data).arg("-l").arg(run.join("log")).args(["-w", "-o", &opts, "start"]))?
             }
             Engine::Mongodb => {
                 // Every mongod is a single-node replica set, so change streams and transactions
                 // work and a synced root can be tailed. Spawned detached: 8.3 dropped --fork on macOS.
-                let mut cmd = Command::new("mongod");
+                if self.managed() && !self.dir.join("keyfile").exists() {
+                    write_secret(&self.dir.join("keyfile"), &format!("{}{}", random_password()?, random_password()?))?;
+                }
+                let mut cmd = sandbox::command(self, "mongod")?;
                 cmd.arg("--dbpath").arg(&data)
                     .args(["--port", &port.to_string(), "--bind_ip", "127.0.0.1", "--nounixsocket", "--logappend", "--replSet", "anybranch"])
                     .arg("--logpath").arg(run.join("log"))
@@ -648,7 +719,8 @@ impl Branch {
                     cmd.arg("--keyFile").arg(&keyfile);
                 }
                 let mut child = cmd
-                    .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+                    .stdin(Stdio::null()).stdout(Stdio::null())
+                    .stderr(Stdio::from(io(fs::OpenOptions::new().create(true).append(true).open(run.join("log")))?))
                     .process_group(0)
                     .spawn()
                     .map_err(|e| format!("mongod: {e}"))?;
@@ -656,7 +728,7 @@ impl Branch {
                 mongosh(&self.url_on(port, false), &MONGO_ENSURE_PRIMARY.replace("PORT", &port.to_string()))?;
             }
             Engine::Mysql => {
-                let mut cmd = Command::new("mysqld");
+                let mut cmd = sandbox::command(self, "mysqld")?;
                 cmd.arg("--no-defaults")
                     .arg(format!("--datadir={}", data.display()))
                     .arg(format!("--port={port}"))
@@ -668,13 +740,14 @@ impl Branch {
                     .arg(format!("--server-id={port}"))
                     .args(["--mysqlx=OFF", "--gtid-mode=ON", "--enforce-gtid-consistency=ON", "--relay-log=relay-bin"]);
                 if clone {
-                    cmd.arg("--skip-replica-start");
+                    cmd.args(["--skip-replica-start", "--secure-file-priv=NULL"]);
                 }
                 if self.source().is_some() {
                     cmd.args(["--replicate-ignore-db=mysql", "--replicate-ignore-db=sys"]);
                 }
                 let mut child = cmd
-                    .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
+                    .stdin(Stdio::null()).stdout(Stdio::null())
+                    .stderr(Stdio::from(io(fs::OpenOptions::new().create(true).append(true).open(run.join("log")))?))
                     .process_group(0)
                     .spawn()
                     .map_err(|e| format!("mysqld: {e}"))?;
@@ -682,7 +755,15 @@ impl Branch {
             }
             Engine::Sqlite => unreachable!(),
         }
+        if clone { io(fs::write(run.join("sandbox-v1"), ""))?; }
+        }
         self.ensure_credentials()?;
+        if self.engine == Engine::Postgres && self.source().is_some() && !run.join("ddl-guard-v1").exists() {
+            if self.sql(&format!("SELECT to_regclass('{}.ddl') IS NOT NULL", self.subname()))? == "t" {
+                self.sql(&ddl_replica_sql(&self.subname()))?;
+                io(fs::write(run.join("ddl-guard-v1"), ""))?;
+            }
+        }
         if clone && !run.join("detached").exists() {
             self.detach()?;
             io(fs::write(run.join("detached"), ""))?;
@@ -690,15 +771,38 @@ impl Branch {
         if self.engine == Engine::Mongodb && self.source().is_some() {
             self.spawn_tail()?;
         }
-        if clone && !run.join("branch_sql.done").exists() {
-            for (label, script) in self.hooks() {
-                if let Err(e) = self.sql(&script) {
-                    eprintln!("warning: {label} failed on {}: {e}", self.name);
-                }
-            }
-            io(fs::write(run.join("branch_sql.done"), ""))?;
-        }
+        self.initialize_hooks()?;
+        self.ensure_agent_credentials()?;
+        io(fs::write(run.join("ready-v1"), ""))?;
         Ok(())
+    }
+
+    fn initialize_hooks(&self) -> R<()> {
+        if self.parent().is_none() || self.run().join("branch_sql.done-v1").exists() { return Ok(()); }
+        if self.run().join("branch_sql.done").exists() && !self.hooks().is_empty() {
+            return Err("legacy hook completion cannot be verified; reset this branch or create a new branch before handing out its URL".into());
+        }
+        // A prepared snapshot already contains its successfully initialized data.
+        // Replaying hooks into every pool slot would duplicate fixtures/masking.
+        if let Some(parent) = self.parent().and_then(|p| Branch::load(&p).ok()).filter(pool::is_snapshot) {
+            if !parent.run().join("branch_sql.done-v1").exists() && !self.hooks().is_empty() {
+                return Err("legacy snapshot hook completion cannot be verified; prepare a new snapshot".into());
+            }
+            return io(fs::write(self.run().join("branch_sql.done-v1"), ""));
+        }
+        for (label, script) in self.hooks() {
+            // Preserve successful hooks on retry, but rerun if their content changes.
+            let done = self.run().join(format!("hook-done.{label}"));
+            if fs::read_to_string(&done).ok().as_deref() == Some(script.as_str()) { continue; }
+            let result = if self.engine == Engine::Sqlite {
+                let _lock = sqlite::lock(self)?;
+                rusqlite::Connection::open(self.data().join("db.sqlite"))
+                    .and_then(|db| db.execute_batch(&script)).map_err(|e| e.to_string())
+            } else { self.sql(&script).map(drop) };
+            result.map_err(|e| format!("{label} failed on {}; branch is not ready: {e}", self.name))?;
+            write_secret(&done, &script)?;
+        }
+        io(fs::write(self.run().join("branch_sql.done-v1"), ""))
     }
 
     /// A fresh clone inherits its parent's replication config. Cut it loose so it never
@@ -753,6 +857,7 @@ impl Branch {
         if live_pid(&run.join("tailpid")).is_some() {
             return Ok(());
         }
+        let _ = fs::remove_file(run.join("tail.failed"));
         io(fs::write(run.join("tail.js"), MONGO_TAIL_JS))?;
         let log = io(fs::OpenOptions::new().create(true).append(true).open(run.join("tail.log")))?;
         let child = Command::new("mongosh")
@@ -817,10 +922,12 @@ impl Branch {
                 );
             }
         }
-        self.stop()?;
+        let _hold = self.hold()?;
         if let Some(pid) = live_pid(&self.run().join("proxypid")) {
-            let _ = sh(Command::new("kill").args(["-TERM", &pid.to_string()]));
+            sh(Command::new("kill").args(["-TERM", &pid.to_string()]))?;
+            wait(|| !alive(pid), 10, "branch proxy to stop")?;
         }
+        self.stop()?;
         if self.is_current() {
             let _ = fs::remove_file(home().join(".current"));
         }
@@ -936,7 +1043,7 @@ impl Branch {
                 let applied = fs::read_to_string(run.join("applied")).unwrap_or_else(|_| "nothing yet".into());
                 let failed = fs::read_to_string(run.join("tail.errors")).map(|s| s.lines().count()).unwrap_or(0);
                 lines.push(("stream", format!("{}, last event applied {applied}", if tailing { "tailing" } else { "stopped (anybranch repair restarts it; see run/tail.log)" })));
-                lines.push(("skipped events", format!("{failed}{}", if failed > 0 { " (see run/tail.errors)" } else { "" })));
+                lines.push(("failed event attempts", format!("{failed}{}", if failed > 0 { " (checkpoint retained; see run/tail.errors)" } else { "" })));
             }
             Engine::Sqlite => {}
         }
@@ -966,6 +1073,21 @@ impl Branch {
         match self.engine {
             Engine::Postgres => {
                 let sub = self.subname();
+                let failures = self.sql(&format!("SELECT count(*) FROM {sub}.ddl WHERE error IS NOT NULL")).unwrap_or_default();
+                if !failures.is_empty() && failures != "0" {
+                    self.sql(&format!(
+                        "DO $$ DECLARE r record; BEGIN FOR r IN SELECT id,sql,search_path FROM {sub}.ddl WHERE error IS NOT NULL ORDER BY id LOOP \
+                         BEGIN PERFORM set_config('search_path',r.search_path,true); \
+                         EXECUTE {sub}.ddl_only(r.sql); \
+                         UPDATE {sub}.ddl SET error=NULL WHERE id=r.id; \
+                         EXCEPTION WHEN OTHERS THEN UPDATE {sub}.ddl SET error=SQLERRM WHERE id=r.id; END; END LOOP; END $$;"
+                    ))?;
+                    let remaining = self.sql(&format!("SELECT count(*) FROM {sub}.ddl WHERE error IS NOT NULL"))?;
+                    if remaining != "0" { return Err(format!("{remaining} schema changes still fail; correct their prerequisites and run repair again")); }
+                    if self.sql(&format!("SELECT subenabled FROM pg_subscription WHERE subname='{sub}'"))? == "t" {
+                        return Ok(format!("replayed {failures} failed schema changes; replication is enabled"));
+                    }
+                }
                 if self.sql(&format!("SELECT subenabled FROM pg_subscription WHERE subname = '{sub}'"))? == "t" {
                     return Ok("replication is not paused; nothing to repair".into());
                 }
@@ -1007,7 +1129,7 @@ impl Branch {
                 self.kill_tail();
                 wait(|| live_pid(&self.run().join("tailpid")).is_none(), 30, "tailer to exit")?;
                 self.spawn_tail()?;
-                Ok("tailer restarted from its last resume token; failed events are logged in run/tail.errors and skipped".into())
+                Ok("tailer restarted from its last successful resume token; failed events will be retried".into())
             }
             Engine::Sqlite => Err("sqlite does not replicate".into()),
         }
@@ -1381,16 +1503,23 @@ fn create_cold(name: &str, parent: &str) -> R<Branch> {
         }
         clone(&p.data(), &b.data())
     };
-    if was_running {
-        p.start()?;
-    }
+    let restarted = if was_running { p.start() } else { Ok(()) };
     io(fs::write(b.dir.join("parent"), parent))?;
-    let b = finish(b, cloned)?;
+    let b = finish(b, cloned.and(restarted))?;
     b.set_current()?;
     Ok(b)
 }
 
 fn ensure_branch_ready(p: &Branch) -> R<()> {
+    if p.source().is_some() && p.engine == Engine::Mongodb {
+        if p.run().join("tail.failed").exists() || live_pid(&p.run().join("tailpid")).is_none() {
+            return Err(format!("replica {} is not tailing successfully; inspect status and repair before branching", p.name));
+        }
+    }
+    if p.source().is_some() && p.engine == Engine::Mysql {
+        let healthy = p.sql("SELECT COUNT(*) FROM performance_schema.replication_connection_status c JOIN performance_schema.replication_applier_status a USING (CHANNEL_NAME) WHERE c.SERVICE_STATE='ON' AND a.SERVICE_STATE='ON'")?;
+        if healthy != "1" { return Err(format!("replica {} is paused or disconnected; inspect status and repair before branching", p.name)); }
+    }
     if p.engine == Engine::Postgres && p.source().is_some() {
         p.start()?;
         p.refresh();
@@ -1399,6 +1528,9 @@ fn ensure_branch_ready(p: &Branch) -> R<()> {
              AND NOT EXISTS (SELECT 1 FROM pg_subscription_rel WHERE srsubid = s.oid AND srsubstate <> 'r') \
              FROM pg_subscription s WHERE subname = '{}'", p.subname()
         ))?;
+        if let Ok(errors) = p.sql(&format!("SELECT count(*) FROM {}.ddl WHERE error IS NOT NULL", p.subname())) {
+            if errors != "0" { return Err(format!("replica {} has failed schema changes; repair the recorded DDL errors before branching", p.name)); }
+        }
         if ready != "t" {
             return Err(format!("replica {0} is still copying or replication is paused; check: anybranch status {0}", p.name));
         }
@@ -1419,8 +1551,25 @@ fn reset(name: &str) -> R<Branch> {
 /// Start the new branch, or remove the half-made directory.
 fn finish(b: Branch, result: R<()>) -> R<Branch> {
     if let Err(e) = result.and_then(|_| b.start()) {
+        // Cleanup must not erase the only explanation for a startup failure.
+        let diagnostic = fs::File::open(b.run().join("log")).ok().and_then(|mut log| {
+            use std::io::{Read, Seek, SeekFrom};
+            let length = log.metadata().ok()?.len();
+            log.seek(SeekFrom::Start(length.saturating_sub(8192))).ok()?;
+            let mut bytes = Vec::new();
+            log.take(8192).read_to_end(&mut bytes).ok()?;
+            let dir = home().join(".failed");
+            fs::create_dir_all(&dir).ok()?;
+            let path = dir.join(format!("{}-{}.log", b.name, random_password().ok()?));
+            let tail = String::from_utf8_lossy(&bytes);
+            write_secret(&path, &tail).ok()?;
+            Some(path)
+        });
         let _ = b.rm_quiet();
-        return Err(e);
+        return Err(match diagnostic {
+            Some(path) => format!("{e}\nstartup diagnostic saved on server: {}", path.display()),
+            None => e,
+        });
     }
     Ok(b)
 }
@@ -1449,9 +1598,11 @@ fn up() -> R<()> {
     for b in branches {
         if pool::is_snapshot(&b) { continue; }
         if b.engine == Engine::Sqlite {
+            b.start()?;
             continue;
         }
-        let result = if b.source().is_some() || b.dir.join("pool-ready").exists() { b.start() } else { b.ensure_proxy() };
+        let upgrade = b.parent().is_some() && !b.run().join("ready-v1").exists();
+        let result = if upgrade || b.source().is_some() || b.dir.join("pool-ready").exists() { b.start() } else { b.ensure_proxy() };
         match result {
             Ok(()) => println!("{}\t{}", b.name, b.status_word()),
             Err(e) => eprintln!("{}\tfailed: {e}", b.name),
@@ -1720,9 +1871,8 @@ fn wait_port(port: u16, child: &mut Child, log: &Path) -> R<()> {
     Ok(())
 }
 
-// ponytail: replays current_query(), the whole client string. Migration tools send one
-// statement per query, so this is exact for them; a hand-written `psql -c "ddl; dml"` batch
-// would replay its DML too and can collide with the row stream.
+// Event triggers log the full client query. ddl_only extracts its DDL before replay;
+// row changes in the same batch arrive separately through logical replication.
 fn ddl_source_sql(sub: &str, schemas: &str) -> String {
     format!(
         "CREATE SCHEMA {sub};
@@ -1757,19 +1907,22 @@ END $f$;"
 }
 
 fn ddl_replica_sql(sub: &str) -> String {
+    let lexer = include_str!("ddl.sql").replace("@SCHEMA@", sub);
     format!(
-        "DROP EVENT TRIGGER IF EXISTS {sub};
-CREATE FUNCTION {sub}.apply_ddl() RETURNS trigger LANGUAGE plpgsql AS $f$
+        "{lexer}
+DROP EVENT TRIGGER IF EXISTS {sub};
+CREATE OR REPLACE FUNCTION {sub}.apply_ddl() RETURNS trigger LANGUAGE plpgsql AS $f$
 BEGIN
   -- The apply worker runs with an empty search_path; replay with the one the statement was written under.
   -- CONCURRENTLY cannot run inside the apply transaction; on a replica the plain form is fine.
   BEGIN
     PERFORM set_config('search_path', NEW.search_path, true);
-    EXECUTE regexp_replace(NEW.sql, '\\mCONCURRENTLY\\M', '', 'gi');
+    EXECUTE {sub}.ddl_only(NEW.sql);
   EXCEPTION WHEN OTHERS THEN NEW.error := SQLERRM;
   END;
   RETURN NEW;
 END $f$;
+DROP TRIGGER IF EXISTS apply_ddl ON {sub}.ddl;
 CREATE TRIGGER apply_ddl BEFORE INSERT ON {sub}.ddl FOR EACH ROW EXECUTE FUNCTION {sub}.apply_ddl();
 ALTER TABLE {sub}.ddl ENABLE ALWAYS TRIGGER apply_ddl;"
     )
@@ -1787,7 +1940,7 @@ while (!db.hello().isWritablePrimary) sleep(100);";
 
 /// Applies production change events to this replica, forever. Every event is an upsert or
 /// delete keyed by _id, so replaying the dump window or a restart overlap is harmless. An
-/// event that fails to apply is logged to run/tail.errors and skipped, never fatal.
+/// event that fails to apply stops the tailer without advancing its checkpoint.
 const MONGO_TAIL_JS: &str = "
 const fs = require('fs');
 const src = new Mongo(process.env.SRC);
@@ -1813,12 +1966,15 @@ while (true) {
       case 'rename': coll.renameCollection(e.to.coll, true); break;
       case 'dropDatabase': dbh.dropDatabase(); break;
       case 'create': { const { idIndex, ...options } = desc; dbh.createCollection(e.ns.coll, options); break; }
-      case 'createIndexes': dbh.runCommand({ createIndexes: e.ns.coll, indexes: desc.indexes }); break;
+      case 'createIndexes': { const r=dbh.runCommand({ createIndexes: e.ns.coll, indexes: desc.indexes }); if(!r.ok) throw new Error(JSON.stringify(r)); break; }
       case 'dropIndexes': for (const ix of desc.indexes || []) coll.dropIndex(ix.name); break;
-      case 'modify': dbh.runCommand(Object.assign({ collMod: e.ns.coll }, desc)); break;
+      case 'modify': { const r=dbh.runCommand(Object.assign({ collMod: e.ns.coll }, desc)); if(!r.ok) throw new Error(JSON.stringify(r)); break; }
+      case 'invalidate': throw new Error('change stream invalidated; resync the source');
     }
   } catch (err) {
     fs.appendFileSync(run + '/tail.errors', JSON.stringify({ at: new Date().toISOString(), op: e.operationType, ns: e.ns, id: e.documentKey, error: String(err) }) + '\\n');
+    fs.writeFileSync(run + '/tail.failed', String(err));
+    throw err;
   }
   fs.writeFileSync(run + '/token', JSON.stringify(e._id));
   fs.writeFileSync(run + '/applied', (e.wallTime || new Date()).toISOString());

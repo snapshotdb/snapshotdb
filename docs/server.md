@@ -25,6 +25,10 @@ Use a dedicated Linux host with Btrfs or XFS with reflink enabled. Put all Anybr
 on that filesystem. Run as an ordinary service user with engine binaries on its PATH.
 For PostgreSQL, use PostgreSQL 15+ and matching `pg_ctl`, `initdb`, `psql`, `pg_dump`, and
 `pg_dumpall` binaries. For the other engines see the main README.
+Install bubblewrap before creating PostgreSQL, MySQL or MongoDB branches. On Ubuntu,
+run `sudo bash deploy/install-sandbox.sh`; it installs a scoped AppArmor permission for
+bubblewrap without disabling the global user-namespace restriction. If namespaces or
+bubblewrap are unavailable, branch startup fails instead of running unsandboxed.
 
 Build this checkout on the server with `cargo build --release --locked`, then install
 `target/release/anybranch` as `/usr/local/bin/anybranch`. The client must use the matching

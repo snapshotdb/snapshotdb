@@ -4,6 +4,7 @@ set -euo pipefail
 test -f /var/lib/anybranch-bootstrap-ready
 tar -xzf /tmp/anybranch-source.tar.gz -C /opt/anybranch-src
 chown -R anybranch:anybranch /opt/anybranch-src
+bash /opt/anybranch-src/deploy/install-sandbox.sh
 runuser -u anybranch -- bash -c '
   export PATH=/home/anybranch/.cargo/bin:/usr/lib/postgresql/16/bin:/usr/local/bin:/usr/sbin:/usr/bin:/bin
   cd /opt/anybranch-src

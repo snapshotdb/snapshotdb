@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Same-client fresh 1 TB CLI benchmark. Never compares setup failure with latency.
+"""Same-client fresh PostgreSQL CLI benchmark. Never compares setup failure with latency.
 
 Runs on the developer laptop. Anybranch database traffic uses an encrypted SSH
 tunnel; Ardent uses its returned TLS URL. Region and routing differ and are recorded.
@@ -7,6 +7,7 @@ No ready pool, existing branch reuse, or retries inside a timed successful sampl
 """
 import argparse
 import datetime
+import fcntl
 import json
 import math
 import os
@@ -33,6 +34,7 @@ def main():
     p.add_argument('--minimum-bytes',type=int,default=10**12)
     p.add_argument('--probe-table',default='fresh994209c5_probe')
     p.add_argument('--ardent-connector-id',help='Refuse to benchmark a different active Ardent connector')
+    p.add_argument('--ardent-connector-name',default='anybranch-1tb-comparison')
     args=p.parse_args()
     if not args.probe_table.replace('_','').isalnum():raise ValueError('invalid probe table')
     env=dict(os.environ,ANYBRANCH_HOME=str(args.report.parent/'comparison-client-must-not-exist'))
@@ -58,6 +60,23 @@ def main():
             log.write_text(out.stdout+'\n'+out.stderr)
             raise RuntimeError(command[0]+' failed; see private CLI log')
         return out.stdout.strip()
+    def providers():
+        for provider in (['anybranch','ardent'] if args.provider=='both' else [args.provider]):
+            if provider!='ardent' or not args.ardent_connector_id:
+                yield provider
+                continue
+            with (Path.home()/'.ardent/anybranch-benchmark.lock').open('a') as lock:
+                fcntl.flock(lock,fcntl.LOCK_EX)
+                config=json.loads((Path.home()/'.ardent/config.json').read_text())
+                previous=config.get('currentConnectorName')
+                try:
+                    command(args.ardent,'connector','switch',args.ardent_connector_name)
+                    config=json.loads((Path.home()/'.ardent/config.json').read_text())
+                    check(config.get('currentConnectorId')==args.ardent_connector_id,'Ardent connector ID matches benchmark source')
+                    yield provider
+                finally:
+                    if previous:command(args.ardent,'connector','switch',previous)
+
     def ab(*c):return command(args.anybranch,*c)
     def route(url):
         parts=urlsplit(url)
@@ -79,14 +98,11 @@ def main():
         source_url=route(ab('url','source')); replica_url=route(ab('url','replica'))
         with db(source_url) as source:
             report['source_table_bytes']=source.execute("SELECT sum(pg_total_relation_size(c.oid))::bigint FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname LIKE 'scale_data_%' AND c.relkind='r'").fetchone()[0]
-            check(report['source_table_bytes']>=args.minimum_bytes,'source measured at least 1 TB')
+            check(report['source_table_bytes']>=args.minimum_bytes,'source meets requested byte threshold')
             expected=source.execute('SELECT md5(payload) FROM public.scale_data_0 WHERE id=1').fetchone()[0]
-        for provider in (['anybranch','ardent'] if args.provider=='both' else [args.provider]):
+        for provider in providers():
             data=report['providers'][provider]={'trials':[],'state':'running'}
             for i in range(args.trials):
-                if provider=='ardent' and args.ardent_connector_id:
-                    config=json.loads((Path.home()/'.ardent/config.json').read_text())
-                    check(config.get('currentConnectorId')==args.ardent_connector_id,'Ardent active connector matches benchmark source')
                 nonce=secrets.token_hex(12)
                 with db(source_url) as source:
                     source.execute(f'INSERT INTO {table}(id,value) VALUES(1,%s) ON CONFLICT(id) DO UPDATE SET value=EXCLUDED.value',[nonce])
@@ -118,7 +134,7 @@ def main():
                         # inventory, which is verified separately on every branch.
                         check(branch.execute("SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname ~ '^scale_data_[0-7]$' AND c.relkind='r'").fetchone()[0]==8,f'{provider} {i}: all eight large tables present')
                         branch_bytes=branch.execute("SELECT sum(pg_total_relation_size(c.oid))::bigint FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname LIKE 'scale_data_%' AND c.relkind='r'").fetchone()[0]
-                        check(branch_bytes>=args.minimum_bytes,f'{provider} {i}: branch measured at least 1 TB')
+                        check(branch_bytes>=args.minimum_bytes,f'{provider} {i}: branch meets requested byte threshold')
                     with db(source_url) as source,db(replica_url) as replica:
                         check(source.execute(f'SELECT value FROM {table} WHERE id=1').fetchone()[0]==nonce,f'{provider} {i}: source isolation')
                         check(replica.execute(f'SELECT value FROM {table} WHERE id=1').fetchone()[0]==nonce,f'{provider} {i}: replica isolation')

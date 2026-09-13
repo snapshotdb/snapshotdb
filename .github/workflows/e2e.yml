@@ -8,7 +8,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Btrfs volume for copy-on-write clones
         run: |
-          sudo apt-get install -y -qq btrfs-progs >/dev/null
+          sudo apt-get install -y -qq bubblewrap btrfs-progs >/dev/null
           truncate -s 4G /tmp/btrfs.img && sudo mkfs.btrfs -q /tmp/btrfs.img
           sudo mkdir -p /mnt/anybranch && sudo mount -o loop /tmp/btrfs.img /mnt/anybranch
           sudo chown "$USER" /mnt/anybranch
@@ -17,6 +17,8 @@ jobs:
           curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | sudo gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg
           echo "deb [signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg] https://repo.mongodb.org/apt/ubuntu noble/mongodb-org/8.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list >/dev/null
           sudo apt-get update -qq >/dev/null && sudo apt-get install -y -qq mongodb-org-server mongodb-mongosh mongodb-database-tools >/dev/null
+      - name: Branch filesystem sandbox
+        run: sudo bash deploy/install-sandbox.sh
       - name: Engines on PATH
         run: |
           echo "/usr/lib/postgresql/$(ls /usr/lib/postgresql | sort -n | tail -1)/bin" >> "$GITHUB_PATH"

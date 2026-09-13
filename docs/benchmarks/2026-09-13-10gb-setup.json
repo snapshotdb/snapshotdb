@@ -1,0 +1,25 @@
+{
+  "state": "ready",
+  "minimum_bytes": 10000000000,
+  "timings_seconds": {
+    "generation": 72.16041576999851,
+    "anybranch_initial_copy": 87.64385879800102
+  },
+  "checks": [
+    "real temporary wal2json slot succeeded",
+    "all eight replica row counts match",
+    "source and replica measured at least 10 GB"
+  ],
+  "rows_per_table": {
+    "public.scale_data_0": 650000,
+    "public.scale_data_1": 650000,
+    "public.scale_data_2": 650000,
+    "public.scale_data_3": 650000,
+    "public.scale_data_4": 650000,
+    "public.scale_data_5": 650000,
+    "public.scale_data_6": 650000,
+    "public.scale_data_7": 650000
+  },
+  "source_table_bytes": 10769342464,
+  "replica_table_bytes": 10770161664
+}

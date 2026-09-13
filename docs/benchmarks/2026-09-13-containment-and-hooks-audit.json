@@ -1,0 +1,23 @@
+{
+  "date": "2026-09-13",
+  "scope": "controlled live checks on owned synthetic benchmark infrastructure",
+  "anybranch": {
+    "connection": "generated branch admin credentials over TCP",
+    "role_superuser": true,
+    "sibling_mode_0600_canary_readable": true,
+    "canary_removed": true,
+    "actual_secrets_read": false,
+    "failed_hook_create_exit_code": 0,
+    "failed_hook_url_returned": true,
+    "failed_hook_warning_emitted": true,
+    "failed_hook_marked_done": true,
+    "disposable_root_and_child_removed": true
+  },
+  "ardent": {
+    "connection": "returned URL for retained 100MB branch",
+    "role_superuser": false,
+    "pg_read_server_files_role_usage": false,
+    "os_isolation_tested": false,
+    "failed_hook_behavior_tested": false
+  }
+}

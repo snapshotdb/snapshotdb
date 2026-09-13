@@ -79,6 +79,9 @@ pub fn serve(b: &Branch) -> R<()> {
 
 fn query(b: &Branch, body: Value) -> R<Value> {
     pool::writable(b)?;
+    if b.parent().is_some() && !b.run().join("ready-v1").exists() {
+        return Err("branch initialization has not completed".into());
+    }
     let _lock = lock(b)?;
     let statements = body["statements"]
         .as_array()

@@ -1,0 +1,283 @@
+{
+  "state": "passed",
+  "measurement": "same laptop, API create request -> URL -> new authenticated connection -> payload read -> committed write and read-back",
+  "poll_seconds": 0.1,
+  "concurrent_load": "1 TB sync and CLI tests",
+  "datasets": {
+    "100mb": {
+      "anybranch": [
+        {
+          "index": 0,
+          "url_ms": 890.444,
+          "read_write_ms": 1152.896,
+          "table_bytes": 120258560,
+          "passed": true
+        },
+        {
+          "index": 1,
+          "url_ms": 882.312,
+          "read_write_ms": 1147.761,
+          "table_bytes": 120258560,
+          "passed": true
+        },
+        {
+          "index": 2,
+          "url_ms": 867.037,
+          "read_write_ms": 1149.105,
+          "table_bytes": 120258560,
+          "passed": true
+        },
+        {
+          "index": 3,
+          "url_ms": 885.323,
+          "read_write_ms": 1183.24,
+          "table_bytes": 120258560,
+          "passed": true
+        },
+        {
+          "index": 4,
+          "url_ms": 873.287,
+          "read_write_ms": 1144.239,
+          "table_bytes": 120258560,
+          "passed": true
+        }
+      ],
+      "ardent": [
+        {
+          "index": 0,
+          "url_ms": 6453.432,
+          "read_write_ms": 9260.414,
+          "table_bytes": 116465664,
+          "passed": true
+        },
+        {
+          "index": 1,
+          "url_ms": 6488.308,
+          "read_write_ms": 9271.295,
+          "table_bytes": 116465664,
+          "passed": true
+        },
+        {
+          "index": 2,
+          "url_ms": 6653.896,
+          "read_write_ms": 9619.259,
+          "table_bytes": 116465664,
+          "passed": true
+        },
+        {
+          "index": 3,
+          "url_ms": 5764.126,
+          "read_write_ms": 9091.051,
+          "table_bytes": 116465664,
+          "passed": true
+        },
+        {
+          "index": 4,
+          "url_ms": 6937.922,
+          "read_write_ms": 9839.257,
+          "table_bytes": 116465664,
+          "passed": true
+        }
+      ]
+    },
+    "10gb": {
+      "anybranch": [
+        {
+          "index": 0,
+          "url_ms": 868.867,
+          "read_write_ms": 1191.94,
+          "table_bytes": 10770448384,
+          "passed": true
+        },
+        {
+          "index": 1,
+          "url_ms": 864.498,
+          "read_write_ms": 1153.915,
+          "table_bytes": 10770448384,
+          "passed": true
+        },
+        {
+          "index": 2,
+          "url_ms": 877.564,
+          "read_write_ms": 1167.258,
+          "table_bytes": 10770448384,
+          "passed": true
+        },
+        {
+          "index": 3,
+          "url_ms": 880.986,
+          "read_write_ms": 1170.18,
+          "table_bytes": 10770448384,
+          "passed": true
+        },
+        {
+          "index": 4,
+          "url_ms": 872.743,
+          "read_write_ms": 1130.772,
+          "table_bytes": 10770448384,
+          "passed": true
+        }
+      ],
+      "ardent": [
+        {
+          "index": 0,
+          "url_ms": 7943.053,
+          "read_write_ms": 11227.55,
+          "table_bytes": 10851762176,
+          "passed": true
+        },
+        {
+          "index": 1,
+          "url_ms": 8281.878,
+          "read_write_ms": 11619.848,
+          "table_bytes": 10851762176,
+          "passed": true
+        },
+        {
+          "index": 2,
+          "url_ms": 7616.833,
+          "read_write_ms": 11058.286,
+          "table_bytes": 10851762176,
+          "passed": true
+        },
+        {
+          "index": 3,
+          "url_ms": 7034.133,
+          "read_write_ms": 10706.227,
+          "table_bytes": 10851762176,
+          "passed": true
+        },
+        {
+          "index": 4,
+          "url_ms": 8322.435,
+          "read_write_ms": 12273.607,
+          "table_bytes": 10851762176,
+          "passed": true
+        }
+      ]
+    }
+  },
+  "cleanup": [
+    {
+      "provider": "anybranch",
+      "name": "api-100mb-806b32fe",
+      "operation_id": "06dcc481bc531edfce63857eead07981",
+      "state": "submitted"
+    },
+    {
+      "provider": "ardent",
+      "name": "api-100mb-d86b0707",
+      "operation_id": "op_cd0acf0f-0a99-4db9-965d-b49d8c25d34e",
+      "state": "submitted"
+    },
+    {
+      "provider": "anybranch",
+      "name": "api-100mb-1c1cc53d",
+      "operation_id": "38c31d405bc855abfee32f36cf9837c9",
+      "state": "submitted"
+    },
+    {
+      "provider": "ardent",
+      "name": "api-100mb-72f99c7c",
+      "operation_id": "op_d2962d25-ebc7-488f-ab4d-2c8615c5141d",
+      "state": "submitted"
+    },
+    {
+      "provider": "anybranch",
+      "name": "api-100mb-f2e49ae0",
+      "operation_id": "1604439be2cd6bfb6f6859194969916d",
+      "state": "submitted"
+    },
+    {
+      "provider": "ardent",
+      "name": "api-100mb-5c2ef634",
+      "operation_id": "op_2a487d43-5dd0-4a8e-ac21-818fb8e3fb50",
+      "state": "submitted"
+    },
+    {
+      "provider": "anybranch",
+      "name": "api-100mb-7adf02d6",
+      "operation_id": "53f81c59da72634f92a5a3fd9a7432c8",
+      "state": "submitted"
+    },
+    {
+      "provider": "ardent",
+      "name": "api-100mb-2a8ffbb9",
+      "operation_id": "op_0e6196f5-edee-44ab-9a6c-344acb1066e0",
+      "state": "submitted"
+    },
+    {
+      "provider": "anybranch",
+      "name": "api-100mb-d39f0a84",
+      "operation_id": "3b1145de87e92fa7f3943bec9767f62c",
+      "state": "submitted"
+    },
+    {
+      "provider": "ardent",
+      "name": "api-100mb-b72c7900",
+      "operation_id": "op_260b2481-efc6-45ab-a87a-3412764ded28",
+      "state": "submitted"
+    },
+    {
+      "provider": "anybranch",
+      "name": "api-10gb-bc888596",
+      "operation_id": "1ef8ac9c74a0f9a5f59d987c42f8812d",
+      "state": "submitted"
+    },
+    {
+      "provider": "ardent",
+      "name": "api-10gb-15e28793",
+      "operation_id": "op_2cf8942b-8de1-48da-99c4-e11f2e0d8f1e",
+      "state": "submitted"
+    },
+    {
+      "provider": "anybranch",
+      "name": "api-10gb-f1a3a245",
+      "operation_id": "bf3589d4e9f76dc6b4e460d51a7e738a",
+      "state": "submitted"
+    },
+    {
+      "provider": "ardent",
+      "name": "api-10gb-f1d25f9e",
+      "operation_id": "op_4859f454-fa94-4cc4-95b7-b406018838eb",
+      "state": "submitted"
+    },
+    {
+      "provider": "anybranch",
+      "name": "api-10gb-6ef8b9d6",
+      "operation_id": "b932ca283f8177bbfbbe71eecd864021",
+      "state": "submitted"
+    },
+    {
+      "provider": "ardent",
+      "name": "api-10gb-51d2dff2",
+      "operation_id": "op_1a15209c-7544-41fd-817e-e0b7874eba76",
+      "state": "submitted"
+    },
+    {
+      "provider": "anybranch",
+      "name": "api-10gb-6e4e2945",
+      "operation_id": "d4a87089ce75afc5359fad1ce44e6726",
+      "state": "submitted"
+    },
+    {
+      "provider": "ardent",
+      "name": "api-10gb-6cdf4cb8",
+      "operation_id": "op_8cd0cae0-ce58-473f-a25b-1b9e65343b07",
+      "state": "submitted"
+    },
+    {
+      "provider": "anybranch",
+      "name": "api-10gb-99995f20",
+      "operation_id": "048abf690e466ae5c188d89e3bc260e9",
+      "state": "submitted"
+    },
+    {
+      "provider": "ardent",
+      "name": "api-10gb-7ac9ea98",
+      "operation_id": "op_4df652ac-d146-4604-bb3e-8a8bde5bd069",
+      "state": "submitted"
+    }
+  ],
+  "isolation_verification": "Source and Anybranch replica lack branch-created api_agent_probe and backend_agent_probe tables; checked independently through source SQL."
+}

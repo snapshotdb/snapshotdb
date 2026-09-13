@@ -1,5 +1,7 @@
 # Anybranch and Ardent comparison — 13 September 2026
 
+**Update:** [Completed 100 MB and 10 GB head-to-head results](head-to-head-results.md) are now available. The setup-pending statements below describe earlier observations.
+
 **A direct latency winner is not established.** Anybranch completed 20 fresh 1 TB
 branch trials from the laptop. Ardent's earlier setup attempts were blocked by a
 source PostgreSQL plugin configuration issue, subsequently fixed. Its corrected

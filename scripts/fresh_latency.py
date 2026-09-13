@@ -28,6 +28,7 @@ def main():
     p.add_argument('--report',type=Path,required=True)
     p.add_argument('--server-home',type=Path,required=True)
     p.add_argument('--minimum-bytes',type=int,default=10**12)
+    p.add_argument('--skip-padding-check',action='store_true',help='Use for fixtures without the original 1 TB padding table')
     args=p.parse_args()
     env=dict(os.environ,ANYBRANCH_HOME=str(args.report.parent/'fresh-client-must-not-exist'))
     env.pop('ANYBRANCH_INTERNAL',None)
@@ -56,6 +57,7 @@ def main():
             cli('status',args.replica)
             with connect(replica_url) as replica:
                 ready=replica.execute("SELECT count(*) FROM pg_subscription_rel WHERE srsubstate <> 'r'").fetchone()[0]==0
+                if ready and args.skip_padding_check:break
                 exists=replica.execute("SELECT to_regclass('public.scale_data_padding') IS NOT NULL").fetchone()[0]
                 if ready and exists:
                     count=replica.execute('SELECT count(*) FROM public.scale_data_padding').fetchone()[0]

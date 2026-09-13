@@ -1,0 +1,101 @@
+{
+  "state": "passed",
+  "measurement": "Ardent operation timestamps; worker execution and queue-inclusive separately. Native read/write validated after completion.",
+  "concurrent_load": "1 TB sync and CLI comparisons ongoing",
+  "datasets": {
+    "100mb": [
+      {
+        "index": 0,
+        "operation_id": "op_00815780-86ce-45cd-902a-1aa91b8e2aa0",
+        "worker_ms": 3753.216,
+        "queue_to_completion_ms": 4194.063,
+        "table_bytes": 116465664,
+        "native_read_write_passed": true,
+        "cleanup_operation_id": "op_51519f89-5f12-4837-9280-57eecfc0b60b"
+      },
+      {
+        "index": 1,
+        "operation_id": "op_8f053e17-dcc1-4913-80f7-50d18d732cc1",
+        "worker_ms": 3719.911,
+        "queue_to_completion_ms": 4071.343,
+        "table_bytes": 116465664,
+        "native_read_write_passed": true,
+        "cleanup_operation_id": "op_20932a1b-096b-463b-bb02-1cebc55e4142"
+      },
+      {
+        "index": 2,
+        "operation_id": "op_3e6f776b-958f-48db-b83e-37dfc9fe6630",
+        "worker_ms": 3307.65,
+        "queue_to_completion_ms": 4166.29,
+        "table_bytes": 116465664,
+        "native_read_write_passed": true,
+        "cleanup_operation_id": "op_d69abb96-cb73-4c20-a798-8f00d2fe4b96"
+      },
+      {
+        "index": 3,
+        "operation_id": "op_ab6feec2-ad43-4bad-a17b-350b54f79f76",
+        "worker_ms": 3426.848,
+        "queue_to_completion_ms": 4051.844,
+        "table_bytes": 116465664,
+        "native_read_write_passed": true,
+        "cleanup_operation_id": "op_7b813857-3fbd-451f-96a8-50fcc3b72ce2"
+      },
+      {
+        "index": 4,
+        "operation_id": "op_b50044f9-5ee6-41c4-a830-a3c91b31a986",
+        "worker_ms": 3543.11,
+        "queue_to_completion_ms": 3790.673,
+        "table_bytes": 116465664,
+        "native_read_write_passed": true,
+        "cleanup_operation_id": "op_b4f3063a-25bc-424c-9288-28844d30d6ee"
+      }
+    ],
+    "10gb": [
+      {
+        "index": 0,
+        "operation_id": "op_9bb02ea9-074a-40f3-bf10-4ca90d093f95",
+        "worker_ms": 5003.509,
+        "queue_to_completion_ms": 5583.225,
+        "table_bytes": 10851762176,
+        "native_read_write_passed": true,
+        "cleanup_operation_id": "op_972f97ef-bea3-46dd-953b-1e1a1bfb95af"
+      },
+      {
+        "index": 1,
+        "operation_id": "op_93fbb57d-751d-48da-8c63-03058c1019a8",
+        "worker_ms": 4730.41,
+        "queue_to_completion_ms": 5244.019,
+        "table_bytes": 10851762176,
+        "native_read_write_passed": true,
+        "cleanup_operation_id": "op_96e57e6a-e7b0-4c69-aca1-8ee1a764f758"
+      },
+      {
+        "index": 2,
+        "operation_id": "op_523ea6e8-da02-4e67-818c-f11e08c3050b",
+        "worker_ms": 4844.404,
+        "queue_to_completion_ms": 5283.463,
+        "table_bytes": 10851762176,
+        "native_read_write_passed": true,
+        "cleanup_operation_id": "op_becf8245-bbb1-4ca0-be2a-9d224d79e40f"
+      },
+      {
+        "index": 3,
+        "operation_id": "op_94ab779b-1d56-4586-b4de-d0b7cb00cd0c",
+        "worker_ms": 4909.59,
+        "queue_to_completion_ms": 5492.735,
+        "table_bytes": 10851762176,
+        "native_read_write_passed": true,
+        "cleanup_operation_id": "op_5531ce7a-3c18-46ac-b9c2-38427eb80b19"
+      },
+      {
+        "index": 4,
+        "operation_id": "op_98c50acf-9523-403c-9817-136539dc19e4",
+        "worker_ms": 4671.652,
+        "queue_to_completion_ms": 5685.879,
+        "table_bytes": 10851762176,
+        "native_read_write_passed": true,
+        "cleanup_operation_id": "op_71cb94da-8b5d-4552-a789-cce0a0ff1097"
+      }
+    ]
+  }
+}

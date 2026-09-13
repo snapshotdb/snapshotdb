@@ -16,12 +16,12 @@ anybranch clone prod 'postgresql://user:pass@db.example.com:5432/app'
 # prod replicates 41 tables from the source; initial copy continues in the background
 
 anybranch create feature-x --from prod --print-url
-# postgresql://you:<branch-password>@branches.internal:57375/app
+# postgresql://anybranch_agent:<branch-password>@branches.internal:57375/app
 ```
 
 `prod` is a replica on the deployed server kept in sync with production, rows and schema changes alike, by the
 engine's own replication. Every `create` is a copy-on-write clone of it with its own server on
-its own port: real data, writable, isolated, and holding no production credentials. The first
+its own port: real data and writable storage, with a separate restricted agent login. The first
 replica requires a full transfer and enough server disk for the data. Subsequent branches
 share filesystem blocks until pages change; metadata, startup, and writes still cost space and time. Idle
 branches suspend after five minutes and resume on the next connection; the URL never changes.
@@ -42,7 +42,9 @@ Deploy the server before using database commands: see [server deployment](docs/s
 The client/server change is unreleased; older v0.3.0 release binaries still use local storage.
 Without `ANYBRANCH_SERVER`, the client fails; it never falls back to a local database copy.
 The client only needs the Anybranch binary. Engine binaries and copy-on-write storage belong
-on the server. `ANYBRANCH_HOME` controls **server** storage, not client storage.
+on the server. PostgreSQL, MySQL and MongoDB agent branches require Linux with bubblewrap;
+startup fails if the sandbox is unavailable. SQLite remains available on other platforms.
+`ANYBRANCH_HOME` controls **server** storage, not client storage.
 
 Requests become authenticated server jobs. The CLI waits and prints the result; `--detach`
 returns a job ID immediately, and `anybranch job <id>` reconnects to it. A lost client
@@ -243,23 +245,31 @@ commands through its API.
 
 ## Known limits
 
-- Postgres DDL replay uses the whole client query string. Tools that send one statement per
-  query (Rails, Django, Flyway, Alembic, `psql -f`) are exact. A single query string mixing DDL
-  and DML (`psql -c "alter ...; insert ..."`, or a migration runner that sends a whole script
-  as one query) replays the DML on the replica too, and the streamed rows then collide and
-  pause the stream. Send such migrations statement by statement, or `rm` and `sync` again.
-  `CREATE INDEX CONCURRENTLY` is replayed as a plain `CREATE INDEX`.
-- One deployed server and one administrative API token; no tenant isolation or per-user
-  authorization. All replicas and branches for that deployment share its filesystem.
+- PostgreSQL replays top-level DDL separately from streamed DML, including mixed batches,
+  quoted strings and dollar-quoted function bodies. Procedural/dynamic DDL and `CREATE
+  TABLE AS` require explicit reconciliation; recorded errors block branching. This is
+  not a complete PostgreSQL grammar or full source-role/RLS fidelity guarantee.
+  `CREATE INDEX CONCURRENTLY` becomes a plain index on the replica.
+- One deployed server and one administrative API token; no per-user API authorization,
+  compute quotas, or managed failover. Branch engine mount namespaces hide sibling data,
+  sockets and control-server metadata. They share host networking and compute; this is
+  not a VM boundary or a multi-tenant public service.
 - SQLite returns a private SQL-over-HTTP URL. It uses the request format in
   [prepared agent branches](docs/prepared-branches.md); native SQLite file drivers cannot
   open that URL. PostgreSQL, MySQL, and MongoDB use their native network protocols.
 - Jobs serialize engine commands. Queued/running jobs are marked interrupted after a server
   restart and are not automatically retried. Inspect branch state before resubmitting.
-- Roots anybranch creates (`--new`, `sync`) get a generated admin password, and every branch
-  rotates to its own on first start, so a branch URL never opens its parent. Postgres accepts
-  the password over TCP and trusts only its Unix socket, which anybranch itself uses; MongoDB
-  runs with a keyFile and a `root` user. Roots imported from an existing data directory keep
-  whatever auth they came with.
+- Managed roots expose an administrative URL for the deployment operator. Child URLs use
+  `anybranch_agent`: PostgreSQL object ownership without superuser/server-file roles,
+  MySQL privileges on application databases, and MongoDB read/write and database-admin
+  roles without user administration. Maintenance credentials stay in private server files.
+  PostgreSQL branch ownership is reassigned for migrations; exact source-role/RLS fidelity
+  is not guaranteed. Unmanaged imported directories cannot produce agent branches.
+- Initialization hooks must succeed before a URL or proxy connection is usable. Prepared
+  children inherit initialized snapshot data without executing the hooks twice. Recorded
+  PostgreSQL DDL failures and unhealthy MySQL/MongoDB replication block fresh branches.
+  MongoDB repair retries its failed event instead of advancing past it.
+
+See [security fixes, upgrade instructions and measured latency](docs/security-hardening.md).
 
 Apache-2.0.

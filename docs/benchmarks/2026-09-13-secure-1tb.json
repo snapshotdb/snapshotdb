@@ -1,0 +1,57 @@
+{
+  "state": "passed",
+  "source": "retained stopped 1 TB branch copied using Btrfs reflinks under the original worker lock; no original data modified",
+  "fresh": [
+    {
+      "url_ms": 1521.858,
+      "read_write_ms": 1569.227,
+      "table_bytes": 1000060870656,
+      "restricted_role_and_file_denial": true
+    },
+    {
+      "url_ms": 2608.395,
+      "read_write_ms": 2655.561,
+      "table_bytes": 1000060870656,
+      "restricted_role_and_file_denial": true
+    },
+    {
+      "url_ms": 2609.518,
+      "read_write_ms": 2655.712,
+      "table_bytes": 1000060870656,
+      "restricted_role_and_file_denial": true
+    },
+    {
+      "url_ms": 2106.429,
+      "read_write_ms": 2153.275,
+      "table_bytes": 1000060870656,
+      "restricted_role_and_file_denial": true
+    },
+    {
+      "url_ms": 2508.596,
+      "read_write_ms": 2554.092,
+      "table_bytes": 1000060870656,
+      "restricted_role_and_file_denial": true
+    }
+  ],
+  "prepared": [
+    {
+      "url_ms": 42.602,
+      "read_write_ms": 93.904,
+      "table_bytes": 1000060870656,
+      "restricted_role_and_file_denial": true
+    },
+    {
+      "url_ms": 42.947,
+      "read_write_ms": 94.839,
+      "table_bytes": 1000060870656,
+      "restricted_role_and_file_denial": true
+    },
+    {
+      "url_ms": 42.698,
+      "read_write_ms": 94.083,
+      "table_bytes": 1000060870656,
+      "restricted_role_and_file_denial": true
+    }
+  ],
+  "binary_sha256": "e85c0b7e7c4608d6bf9a952acb2ac87e370c7ad3f6e768d8aac3c210f7a0d584"
+}

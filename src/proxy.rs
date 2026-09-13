@@ -71,9 +71,7 @@ pub fn serve(name: &str) -> R<()> {
 fn splice(client: TcpStream, b: &Branch, act: &Activity) -> R<()> {
     {
         let _guard = act.start.lock().map_err(|_| "lock poisoned")?;
-        if !b.running() {
-            b.start_engine()?; // resume: the client simply waits a few hundred ms
-        }
+        b.start_engine()?; // Also gates connections while credentials/hooks are initializing.
     }
     let eport = b.eport().ok_or("engine port unknown")?;
     let upstream = TcpStream::connect(("127.0.0.1", eport)).map_err(|e| format!("connect engine {eport}: {e}"))?;

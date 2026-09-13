@@ -3,7 +3,7 @@
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq btrfs-progs build-essential pkg-config curl ca-certificates gnupg \
+apt-get install -y -qq bubblewrap btrfs-progs build-essential pkg-config curl ca-certificates gnupg \
   git python3 sqlite3 postgresql-16 postgresql-client-16 mysql-server
 systemctl disable --now postgresql mysql
 

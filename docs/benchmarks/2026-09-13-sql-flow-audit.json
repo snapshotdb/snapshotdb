@@ -1,0 +1,19 @@
+{
+  "scope": "same branch SQL flow on retained 100MB branches; does not test source metadata fidelity",
+  "ardent": {
+    "committed_write": true,
+    "rollback": true,
+    "identity_sequence": true,
+    "unique_foreign_key_check_constraints": true,
+    "branch_ddl": true,
+    "cleanup": true
+  },
+  "anybranch": {
+    "committed_write": true,
+    "rollback": true,
+    "identity_sequence": true,
+    "unique_foreign_key_check_constraints": true,
+    "branch_ddl": true,
+    "cleanup": true
+  }
+}
