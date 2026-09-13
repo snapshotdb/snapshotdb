@@ -844,15 +844,31 @@ impl Branch {
     /// Only once the initial copy is done: a REFRESH during a large copy can stall the apply
     /// worker past wal_receiver_timeout, which disable_on_error then turns into a pause.
     fn refresh(&self) {
+        let _ = self.refresh_checked();
+    }
+
+    fn refresh_checked(&self) -> R<()> {
         if self.engine == Engine::Postgres && self.source().is_some() && self.running() {
             let sub = self.subname();
             let ready = self.sql(&format!(
                 "SELECT subenabled AND NOT EXISTS (SELECT 1 FROM pg_subscription_rel WHERE srsubstate <> 'r') FROM pg_subscription WHERE subname = '{sub}'"
             ));
             if ready.as_deref() == Ok("t") {
-                let _ = self.sql(&format!("ALTER SUBSCRIPTION {sub} REFRESH PUBLICATION"));
+                // REFRESH takes locks and can restart apply. Do not interrupt a
+                // large transaction on every status/branch request when the
+                // publication membership has not changed.
+                let published = psql(&self.source().unwrap(), &format!(
+                    "SELECT coalesce(string_agg(format('%I.%I', schemaname, tablename), ',' ORDER BY schemaname, tablename), '') FROM pg_publication_tables WHERE pubname='{sub}'"
+                ))?;
+                let subscribed = self.sql(&format!(
+                    "SELECT coalesce(string_agg(format('%I.%I', n.nspname, c.relname), ',' ORDER BY n.nspname, c.relname), '') FROM pg_subscription_rel r JOIN pg_subscription s ON s.oid=r.srsubid JOIN pg_class c ON c.oid=r.srrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE s.subname='{sub}'"
+                ))?;
+                if published != subscribed {
+                    self.sql(&format!("ALTER SUBSCRIPTION {sub} REFRESH PUBLICATION"))?;
+                }
             }
         }
+        Ok(())
     }
 
     /// Long-running mongosh that applies production change events to this replica.
@@ -1382,6 +1398,14 @@ fn sync(engine: &str, name: &str, url: &str, schemas: &str, fix_identity: bool) 
                         b.sql(&ddl_replica_sql(&sub))?;
                         published += &format!(", {sub}.ddl");
                     }
+                    // Install the freshness barrier during initial setup, so
+                    // the first branch needs no publication change or copy.
+                    if !ddl { psql(url, &format!("CREATE SCHEMA {sub}"))?; }
+                    let freshness_table = format!("CREATE TABLE {sub}._freshness_v1 (id integer PRIMARY KEY, token text NOT NULL)");
+                    psql(url, &freshness_table)?;
+                    if !ddl { b.sql(&format!("CREATE SCHEMA IF NOT EXISTS {sub}"))?; }
+                    b.sql(&freshness_table)?;
+                    published += &format!(", {sub}._freshness_v1");
                     psql(url, &format!("DROP PUBLICATION IF EXISTS {sub}"))?;
                     psql(url, &format!("CREATE PUBLICATION {sub} FOR TABLE {published}"))?;
                     if ddl {
@@ -1395,7 +1419,8 @@ fn sync(engine: &str, name: &str, url: &str, schemas: &str, fix_identity: bool) 
                     b.sql(&format!(
                         "CREATE SUBSCRIPTION {sub} CONNECTION '{}' PUBLICATION {sub} WITH (disable_on_error = true)",
                         replication_conninfo(url).replace('\'', "''")
-                    ))
+                    ))?;
+                    io(fs::write(b.dir.join("freshness-v1"), ""))
                 });
             if let Err(e) = result {
                 let _ = psql(url, &teardown);
@@ -1526,7 +1551,7 @@ fn ensure_branch_ready(p: &Branch) -> R<()> {
     }
     if p.engine == Engine::Postgres && p.source().is_some() {
         p.start()?;
-        p.refresh();
+        p.refresh_checked()?;
         let ready = p.sql(&format!(
             "SELECT subenabled AND EXISTS (SELECT 1 FROM pg_subscription_rel WHERE srsubid = s.oid) \
              AND NOT EXISTS (SELECT 1 FROM pg_subscription_rel WHERE srsubid = s.oid AND srsubstate <> 'r') \
@@ -1538,8 +1563,78 @@ fn ensure_branch_ready(p: &Branch) -> R<()> {
         if ready != "t" {
             return Err(format!("replica {0} is still copying or replication is paused; check: anybranch status {0}", p.name));
         }
+        wait_postgres_freshness(p)?;
     }
     Ok(())
+}
+
+/// A received WAL position is not proof that a transaction was applied. Emit a
+/// row on the same publication and wait for its committed value locally, before
+/// stopping the parent. The worker lock serializes marker writers for this root.
+fn wait_postgres_freshness(p: &Branch) -> R<()> {
+    let source = p.source().ok_or("freshness requires a synced root")?;
+    let local = p.socket_url(&p.database())?;
+    let sub = p.subname();
+    let timeout = env::var("ANYBRANCH_FRESHNESS_TIMEOUT_SECONDS")
+        .unwrap_or_else(|_| "600".into()).parse::<u64>()
+        .map_err(|_| "ANYBRANCH_FRESHNESS_TIMEOUT_SECONDS must be an integer from 1 to 3600")?;
+    if !(1..=3600).contains(&timeout) {
+        return Err("ANYBRANCH_FRESHNESS_TIMEOUT_SECONDS must be from 1 to 3600".into());
+    }
+    let started = Instant::now();
+    let query = |url: &str, sql: &str| -> R<String> {
+        out(Command::new("psql").arg(url).env("PGCONNECT_TIMEOUT", "10")
+            .args(["-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-c",
+                "SET statement_timeout = '10s'", "-c", sql]))
+    };
+    let installed = p.dir.join("freshness-v1");
+    if !installed.exists() {
+        // Do not batch CREATE SCHEMA with CREATE TABLE on the publisher: its
+        // event trigger logs current_query(), and replay could race local setup.
+        if query(&source, &format!("SELECT to_regnamespace('{sub}') IS NOT NULL"))? != "t" {
+            query(&source, &format!("CREATE SCHEMA {sub}"))?;
+        }
+        let table = format!("CREATE TABLE IF NOT EXISTS {sub}._freshness_v1 (id integer PRIMARY KEY, token text NOT NULL)");
+        query(&source, &table)?;
+        query(&local, &format!("CREATE SCHEMA IF NOT EXISTS {sub}; {table}"))?;
+        query(&source, &format!(
+            "DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname='{sub}' AND schemaname='{sub}' AND tablename='_freshness_v1') THEN ALTER PUBLICATION {sub} ADD TABLE {sub}._freshness_v1; END IF; END $$"
+        ))?;
+        query(&local, &format!("ALTER SUBSCRIPTION {sub} REFRESH PUBLICATION"))?;
+        // A table-copy worker could otherwise copy a new marker ahead of the
+        // main apply worker. Only emit it after this table is fully synchronized.
+        loop {
+            let ready = query(&local, &format!(
+                "SELECT EXISTS (SELECT 1 FROM pg_subscription_rel r JOIN pg_subscription s ON s.oid=r.srsubid WHERE s.subname='{sub}' AND s.subenabled AND r.srrelid='{sub}._freshness_v1'::regclass AND r.srsubstate='r')"
+            ))?;
+            if ready == "t" { break; }
+            if started.elapsed().as_secs() >= timeout {
+                return Err(format!("freshness initialization timed out for {}; parent left running", p.name));
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        io(fs::write(installed, ""))?;
+    }
+    let token = random_password()?;
+    query(&source, &format!(
+        "INSERT INTO {sub}._freshness_v1 VALUES (1, '{token}') ON CONFLICT (id) DO UPDATE SET token=excluded.token"
+    ))?;
+    loop {
+        let applied = query(&local, &format!(
+            "SELECT EXISTS (SELECT 1 FROM {sub}._freshness_v1 WHERE id=1 AND token='{token}') AND EXISTS (SELECT 1 FROM pg_subscription WHERE subname='{sub}' AND subenabled)"
+        ))?;
+        if applied == "t" {
+            if query(&local, &format!("SELECT to_regclass('{sub}.ddl') IS NOT NULL"))? == "t"
+                && query(&local, &format!("SELECT count(*) FROM {sub}.ddl WHERE error IS NOT NULL"))? != "0" {
+                return Err(format!("replica {} has failed schema changes; no branch created", p.name));
+            }
+            return Ok(());
+        }
+        if started.elapsed().as_secs() >= timeout {
+            return Err(format!("replica {} has not applied the source commit within {timeout}s; no branch created and parent left running", p.name));
+        }
+        thread::sleep(Duration::from_millis(100));
+    }
 }
 
 fn reset(name: &str) -> R<Branch> {

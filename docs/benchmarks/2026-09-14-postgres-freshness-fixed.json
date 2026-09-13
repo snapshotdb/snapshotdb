@@ -1,0 +1,141 @@
+{
+  "state": "completed",
+  "client_region": "ap-south-1",
+  "anybranch_region": "ap-south-1",
+  "ardent_region": "us-east-1",
+  "infrastructure_parity": false,
+  "measurement": "source COMMIT acknowledged to branch with new data probes and agent read/write; result accepted only after full changed-row verification",
+  "limitations": [
+    "One trial per update size; no percentile claims; Anybranch-only fix verification, not a new head-to-head",
+    "Ardent managed compute/storage differ or are unknown",
+    "Anybranch control and database connections are loopback; Ardent connections cross regions",
+    "Full verification runs after candidate latency is captured; only fully verified candidates count",
+    "Exactly one fresh branch request per update; a stale response fails the trial"
+  ],
+  "trials": [
+    {
+      "rows_per_table": 7353,
+      "updated_rows": 58824,
+      "logical_payload_bytes": 100000800,
+      "marker": "8c2082228f66414890cd24f38d36e30b",
+      "providers": {
+        "anybranch": {
+          "attempts": [
+            {
+              "name": "update-226d7f991f57443a",
+              "request_after_commit_ms": 1.4776680036447942,
+              "operation_id": "58a70e26089179bdafbda4e1f97847c9",
+              "request_to_url_ms": 3694.6821409947006,
+              "commit_to_url_ms": 3696.161675004987,
+              "matching_probes_per_table": [
+                3,
+                3,
+                3,
+                3,
+                3,
+                3,
+                3,
+                3
+              ],
+              "matching_rows_per_table": [
+                7353,
+                7353,
+                7353,
+                7353,
+                7353,
+                7353,
+                7353,
+                7353
+              ],
+              "full_validation_ms": 1486.372350002057
+            }
+          ],
+          "success": true,
+          "cleanup": [
+            {
+              "success": true
+            }
+          ],
+          "agent_superuser": false,
+          "commit_to_verified_read_write_ms": 3798.827341001015,
+          "commit_to_url_ms": 3696.161675004987,
+          "commit_to_full_validation_ms": 5285.206429005484,
+          "measurement_finished_after_commit_ms": 5285.259630007204
+        }
+      },
+      "source_update_commit_seconds": 3.9678049189969897,
+      "commit_acknowledged_at": "2026-09-13T21:34:17.504662+00:00",
+      "source_isolation": true
+    },
+    {
+      "rows_per_table": 73530,
+      "updated_rows": 588240,
+      "logical_payload_bytes": 1000008000,
+      "marker": "9745f5b8b2d74556b655a38bbbbf73cd",
+      "providers": {
+        "anybranch": {
+          "attempts": [
+            {
+              "name": "update-4569025f54b746f2",
+              "request_after_commit_ms": 0.7710569916525856,
+              "operation_id": "31d9b41983e957a98565c6ad5c2a6440",
+              "request_to_url_ms": 34381.52268101112,
+              "commit_to_url_ms": 34382.295158997294,
+              "matching_probes_per_table": [
+                3,
+                3,
+                3,
+                3,
+                3,
+                3,
+                3,
+                3
+              ],
+              "matching_rows_per_table": [
+                73530,
+                73530,
+                73530,
+                73530,
+                73530,
+                73530,
+                73530,
+                73530
+              ],
+              "full_validation_ms": 99606.63981900143
+            }
+          ],
+          "success": true,
+          "cleanup": [
+            {
+              "success": true
+            }
+          ],
+          "agent_superuser": false,
+          "commit_to_verified_read_write_ms": 34551.77339799411,
+          "commit_to_url_ms": 34382.295158997294,
+          "commit_to_full_validation_ms": 134158.41956400254,
+          "measurement_finished_after_commit_ms": 134158.47377700265
+        }
+      },
+      "source_update_commit_seconds": 105.2867524230096,
+      "commit_acknowledged_at": "2026-09-13T21:36:08.736273+00:00",
+      "source_isolation": true
+    }
+  ],
+  "binary_sha256": "31ec7999b129d7fce20a66bdfad35ab6759dd305cbc04bd2d8a562fd06202ac1",
+  "replica_already_synced": true,
+  "source_table_bytes": 12108431360,
+  "validation": {
+    "rust_tests_passed": 8,
+    "linux_e2e_checks_passed": 127,
+    "e2e_failures": 0,
+    "engines": [
+      "postgres",
+      "mysql",
+      "mongodb",
+      "sqlite"
+    ],
+    "large_update_test_engine": "postgres",
+    "comparison": "Anybranch-only fix verification, not a new Ardent head-to-head"
+  }
+}

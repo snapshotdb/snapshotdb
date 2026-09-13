@@ -1,0 +1,600 @@
+{
+  "state": "completed_with_freshness_failure",
+  "client_region": "ap-south-1",
+  "anybranch_region": "ap-south-1",
+  "ardent_region": "us-east-1",
+  "infrastructure_parity": false,
+  "measurement": "source COMMIT acknowledged to fresh branch with all updated rows verified and agent committed write readable on a new connection",
+  "limitations": [
+    "One trial per update size; no percentile claims",
+    "Ardent managed compute/storage differ or are unknown",
+    "Anybranch control and database connections are loopback; Ardent connections cross regions",
+    "Validation time is included and separately recorded",
+    "Stale branches are discarded; retries and wait are included in total latency"
+  ],
+  "trials": [
+    {
+      "rows_per_table": 7353,
+      "updated_rows": 58824,
+      "logical_payload_bytes": 100000800,
+      "marker": "e473176c6ef3467dbdddd46ce46c5ea7",
+      "providers": {
+        "anybranch": {
+          "attempts": [
+            {
+              "name": "update-86ae09c305cb40b7",
+              "request_after_commit_ms": 0.8004980045370758,
+              "operation_id": "b3b58bfe277c7f6496e6470111cc555c",
+              "request_to_url_ms": 1570.6762170011643,
+              "commit_to_url_ms": 1571.4788600016618,
+              "matching_rows_per_table": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 32932.09180000122,
+              "stale": true
+            },
+            {
+              "name": "update-1ba778b3f4ce4ba4",
+              "request_after_commit_ms": 39517.64279400231,
+              "operation_id": "900c75bd89ce74f0b78a8d489607c0f0",
+              "request_to_url_ms": 3179.2086140048923,
+              "commit_to_url_ms": 42696.852578999824,
+              "matching_rows_per_table": [
+                7353,
+                7353,
+                7353,
+                7353,
+                7353,
+                7353,
+                7353,
+                7353
+              ],
+              "validation_ms": 35406.76387200074
+            }
+          ],
+          "success": true,
+          "cleanup": [
+            {
+              "success": true
+            },
+            {
+              "success": true
+            }
+          ],
+          "commit_to_verified_data_ms": 78116.85753100028,
+          "agent_superuser": false,
+          "commit_to_verified_read_write_ms": 78173.80945901095,
+          "measurement_finished_after_commit_ms": 78173.8299310091
+        },
+        "ardent": {
+          "attempts": [
+            {
+              "name": "update-cb3667a3c84f4b41",
+              "request_after_commit_ms": 1.2421060091583058,
+              "operation_id": "op_3c909d09-3b51-470c-b114-9659c41ac804",
+              "request_to_url_ms": 8355.2825700026,
+              "commit_to_url_ms": 8356.526354007656,
+              "matching_rows_per_table": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 7002.134982001735,
+              "stale": true
+            },
+            {
+              "name": "update-95cbb9c014dd48dc",
+              "request_after_commit_ms": 22430.403780002962,
+              "operation_id": "op_1cbda885-df41-423a-86d1-363916d4e3e5",
+              "request_to_url_ms": 7207.716420001816,
+              "commit_to_url_ms": 29638.121409007,
+              "matching_rows_per_table": [
+                7353,
+                7353,
+                7353,
+                6947,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 11435.614444009843,
+              "stale": true
+            },
+            {
+              "name": "update-cbcebb25241a4dbd",
+              "request_after_commit_ms": 48407.33430501132,
+              "operation_id": "op_fa82773e-951e-4632-af7b-aa1947f16c0c",
+              "request_to_url_ms": 10454.868810993503,
+              "commit_to_url_ms": 58862.20455500006,
+              "matching_rows_per_table": [
+                7353,
+                7353,
+                7353,
+                7353,
+                7353,
+                7353,
+                7353,
+                7353
+              ],
+              "validation_ms": 11521.219246002147
+            }
+          ],
+          "success": true,
+          "cleanup": [
+            {
+              "success": true
+            },
+            {
+              "success": true
+            },
+            {
+              "success": true
+            }
+          ],
+          "commit_to_verified_data_ms": 72625.70647901157,
+          "agent_superuser": false,
+          "commit_to_verified_read_write_ms": 78399.94436000416,
+          "measurement_finished_after_commit_ms": 78400.03206100664
+        }
+      },
+      "source_update_commit_seconds": 0.870835908994195,
+      "commit_acknowledged_at": "2026-09-13T20:59:42.996320+00:00",
+      "source_isolation": true
+    },
+    {
+      "rows_per_table": 73530,
+      "updated_rows": 588240,
+      "logical_payload_bytes": 1000008000,
+      "marker": "214cccff059a4b76b573711cd3a3403c",
+      "providers": {
+        "anybranch": {
+          "attempts": [
+            {
+              "name": "update-54a5ef37a43a46d5",
+              "request_after_commit_ms": 0.306247005937621,
+              "operation_id": "6f279a41da089a317da9154eca5a6f5d",
+              "request_to_url_ms": 2633.7945440027397,
+              "commit_to_url_ms": 2634.1020640102215,
+              "matching_rows_per_table": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 34102.82662301324,
+              "stale": true
+            },
+            {
+              "name": "update-0f7f2d1344964fd7",
+              "request_after_commit_ms": 41754.288231997634,
+              "operation_id": "9afc6dc2dd391cbd82676b6b95c3f11a",
+              "request_to_url_ms": 10021.316861006198,
+              "commit_to_url_ms": 51775.60679400631,
+              "matching_rows_per_table": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 38153.18461599236,
+              "stale": true
+            },
+            {
+              "name": "update-77cffe14bb4b4152",
+              "request_after_commit_ms": 94944.07001700893,
+              "operation_id": "b1ea7f9ca55475b809eb2e5505f3941f",
+              "request_to_url_ms": 7076.658666002913,
+              "commit_to_url_ms": 102020.72990400484,
+              "matching_rows_per_table": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 38356.001300999196,
+              "stale": true
+            },
+            {
+              "name": "update-8b2bf026448b4f22",
+              "request_after_commit_ms": 145390.9449060011,
+              "operation_id": "d94a91b7828cc33f3c195960869b0161",
+              "request_to_url_ms": 14185.008963002474,
+              "commit_to_url_ms": 159575.95556799788,
+              "matching_rows_per_table": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 40448.40673801082,
+              "stale": true
+            },
+            {
+              "name": "update-661988ef5de04d0b",
+              "request_after_commit_ms": 205040.57442200428,
+              "operation_id": "a6d57f8dceb9da7d42e865240e80ca25",
+              "request_to_url_ms": 4067.0643399935216,
+              "commit_to_url_ms": 209107.6398340083,
+              "matching_rows_per_table": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 45564.96240799606,
+              "stale": true
+            },
+            {
+              "name": "update-1f41f9248cc44b18",
+              "request_after_commit_ms": 259688.38174401026,
+              "operation_id": "fa170a9539918c3431a210ed5de3290e",
+              "request_to_url_ms": 5664.518822988612,
+              "commit_to_url_ms": 265352.9016219982,
+              "matching_rows_per_table": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 64665.547288997914,
+              "stale": true
+            },
+            {
+              "name": "update-73bef2555d584554",
+              "request_after_commit_ms": 335033.96072601026,
+              "operation_id": "045b0b672e720db81c9b50fafc9cf321",
+              "request_to_url_ms": 10263.66431999486,
+              "commit_to_url_ms": 345297.626316009,
+              "matching_rows_per_table": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 70049.02784900332,
+              "stale": true
+            },
+            {
+              "name": "update-2e125069d56b4db6",
+              "request_after_commit_ms": 420363.131762002,
+              "operation_id": "c4a4d98bb12f382d5e17d46ea4311edf",
+              "request_to_url_ms": 11684.5188550069,
+              "commit_to_url_ms": 432047.65164401033,
+              "matching_rows_per_table": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 73177.76254800265,
+              "stale": true
+            },
+            {
+              "name": "update-e48b805232e745c5",
+              "request_after_commit_ms": 510241.72917300893,
+              "operation_id": "db4581276e4e7b9b1c9bfa26818b64b1",
+              "request_to_url_ms": 6273.820780988899,
+              "commit_to_url_ms": 516515.55147500767,
+              "matching_rows_per_table": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 73970.18711600685,
+              "stale": true
+            },
+            {
+              "name": "update-9d4c705526e5427c",
+              "request_after_commit_ms": 595501.8849260086,
+              "operation_id": "db0c7a3f1dedf25e012d3b2b213b644a",
+              "request_to_url_ms": 11735.811790000298,
+              "commit_to_url_ms": 607237.6977240056,
+              "matching_rows_per_table": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 80139.65527099208,
+              "stale": true
+            }
+          ],
+          "success": false,
+          "cleanup": [
+            {
+              "success": true
+            },
+            {
+              "success": true
+            },
+            {
+              "success": true
+            },
+            {
+              "success": true
+            },
+            {
+              "success": true
+            },
+            {
+              "success": true
+            },
+            {
+              "success": true
+            },
+            {
+              "success": true
+            },
+            {
+              "success": true
+            },
+            {
+              "success": true
+            }
+          ],
+          "measurement_finished_after_commit_ms": 692393.0704460072
+        },
+        "ardent": {
+          "attempts": [
+            {
+              "name": "update-3a3e360d116c4e00",
+              "request_after_commit_ms": 0.7805659988662228,
+              "operation_id": "op_6c700727-6efe-49fb-b61c-6c4b1017ef03",
+              "request_to_url_ms": 7211.403029999929,
+              "commit_to_url_ms": 7212.184625997907,
+              "matching_rows_per_table": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 53662.560665005,
+              "stale": true
+            },
+            {
+              "name": "update-181be9344d044279",
+              "request_after_commit_ms": 67943.14917099837,
+              "operation_id": "op_363fe235-c582-4ad2-97e9-7fa5c9dfcc0c",
+              "request_to_url_ms": 8443.454988999292,
+              "commit_to_url_ms": 76386.60527400498,
+              "matching_rows_per_table": [
+                73530,
+                7479,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 49244.770745994174,
+              "stale": true
+            },
+            {
+              "name": "update-c7e06db0fd064102",
+              "request_after_commit_ms": 132730.88813399954,
+              "operation_id": "op_8a6324b9-628f-4567-a2d9-04684dbd205f",
+              "request_to_url_ms": 8429.694970007404,
+              "commit_to_url_ms": 141160.58408800745,
+              "matching_rows_per_table": [
+                73530,
+                73530,
+                5724,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 56608.03843200847,
+              "stale": true
+            },
+            {
+              "name": "update-36a3d4ccd4b54c26",
+              "request_after_commit_ms": 204960.37956800137,
+              "operation_id": "op_6bb2a449-a419-438d-b9bb-89f3e702b24a",
+              "request_to_url_ms": 8389.107158000115,
+              "commit_to_url_ms": 213349.48785000597,
+              "matching_rows_per_table": [
+                73530,
+                73530,
+                73530,
+                14108,
+                0,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 59109.43229999975,
+              "stale": true
+            },
+            {
+              "name": "update-76df1acbfeb4403a",
+              "request_after_commit_ms": 279861.5974980057,
+              "operation_id": "op_5e4f8ed3-7daa-40c2-bcae-b1ec796b39fb",
+              "request_to_url_ms": 7630.185304995393,
+              "commit_to_url_ms": 287491.78368700086,
+              "matching_rows_per_table": [
+                73530,
+                73530,
+                73530,
+                73530,
+                26376,
+                0,
+                0,
+                0
+              ],
+              "validation_ms": 61327.87552299851,
+              "stale": true
+            },
+            {
+              "name": "update-16d294f39fb044cc",
+              "request_after_commit_ms": 355874.2909940047,
+              "operation_id": "op_fdb2d736-70fa-4858-bd0c-93fbbdcf7874",
+              "request_to_url_ms": 7489.99486399407,
+              "commit_to_url_ms": 363364.28725501173,
+              "matching_rows_per_table": [
+                73530,
+                73530,
+                73530,
+                73530,
+                73530,
+                47558,
+                0,
+                0
+              ],
+              "validation_ms": 61857.48217999935,
+              "stale": true
+            },
+            {
+              "name": "update-67070d78d98545ce",
+              "request_after_commit_ms": 432285.73059200426,
+              "operation_id": "op_c88a96b8-cfa4-4620-82eb-15a9e0fd63a2",
+              "request_to_url_ms": 7883.216653004638,
+              "commit_to_url_ms": 440168.94825801137,
+              "matching_rows_per_table": [
+                73530,
+                73530,
+                73530,
+                73530,
+                73530,
+                73530,
+                70992,
+                0
+              ],
+              "validation_ms": 59082.44393799396,
+              "stale": true
+            },
+            {
+              "name": "update-bb8f5ac445aa404c",
+              "request_after_commit_ms": 506317.3200559977,
+              "operation_id": "op_d04d0997-e5d6-44a0-bc90-9a14ccc185ad",
+              "request_to_url_ms": 9592.655468004523,
+              "commit_to_url_ms": 515909.97666399926,
+              "matching_rows_per_table": [
+                73530,
+                73530,
+                73530,
+                73530,
+                73530,
+                73530,
+                73530,
+                73530
+              ],
+              "validation_ms": 68123.71348000306
+            }
+          ],
+          "success": true,
+          "cleanup": [
+            {
+              "success": true
+            },
+            {
+              "success": true
+            },
+            {
+              "success": true
+            },
+            {
+              "success": true
+            },
+            {
+              "success": false,
+              "error_type": "HTTPError"
+            },
+            {
+              "success": false,
+              "error_type": "HTTPError"
+            },
+            {
+              "success": true
+            },
+            {
+              "success": true
+            }
+          ],
+          "commit_to_verified_data_ms": 586095.5886630109,
+          "agent_superuser": false,
+          "commit_to_verified_read_write_ms": 589255.6083410018,
+          "measurement_finished_after_commit_ms": 589255.6650909974
+        }
+      },
+      "source_update_commit_seconds": 24.668487162998645,
+      "commit_acknowledged_at": "2026-09-13T21:02:51.888251+00:00",
+      "source_isolation": true
+    }
+  ],
+  "binary_sha256": "e85c0b7e7c4608d6bf9a952acb2ac87e370c7ad3f6e768d8aac3c210f7a0d584",
+  "anybranch_test_replica_setup_seconds": 51.944631997001125,
+  "source_table_bytes": 10769661952,
+  "diagnostic_notes": "# Mumbai committed-update diagnostic\n\nPostgreSQL, retained 10 GB synthetic source. One transaction changes all eight tables, 1,700-byte payloads: 58,824 rows (100,000,800 logical bytes), then 588,240 rows (1,000,008,000 bytes). These are payload bytes, not measured WAL bytes. Timers start after COMMIT acknowledgement; source execution time is separate.\n\nBoth provider API requests run concurrently on the same Mumbai EC2 client. Anybranch runs on that client host; Ardent managed data plane is in Virginia. Infrastructure and transport are not matched. Existing source subscribers remain active. No strict infrastructure winner can be inferred.\n\nFirst diagnostic verifies every changed row before agent write/readback. Expensive verification delays retries and contributes to measured time. Failed/stale attempts remain in the report. Cleanup time is excluded from latency but awaited before the next transaction. Source data is retained.\n\nObserved Anybranch behaviour: src/main.rs create_cold stops and restarts the parent before/after cloning. Replica logs show replication-worker termination at these stops. ensure_branch_ready checks enabled subscription and completed initial copy, without a source-commit barrier. First 100 MB branch was stale. Ardent first two 100 MB branches were also stale.\n\nDuring the 1 GB run, vmstat instantaneous samples showed 205\u2013248 MiB/s reads, 257\u2013285 MiB/s writes (approximately 500 MiB/s aggregate), 39\u201345% I/O wait, and nine blocked tasks. This is a shared-host I/O limitation as well as a freshness test. It does not isolate source-network, apply, and branch startup latency.\n\nA second harness was prepared to time indexed probes and agent read/write first, admitting the candidate only after full verification. It has not run; its queued service was stopped to avoid starting more writes before reviewing the diagnostic outcome. No numbers from that harness are claimed.\n",
+  "second_harness_executed": false,
+  "cleanup_reconciliation": [
+    {
+      "creation_operation_id": "op_5e4f8ed3-7daa-40c2-bcae-b1ec796b39fb",
+      "success": true
+    },
+    {
+      "creation_operation_id": "op_fdb2d736-70fa-4858-bd0c-93fbbdcf7874",
+      "success": true
+    }
+  ]
+}

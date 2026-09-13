@@ -93,6 +93,30 @@ SQL
   psql "$SRC" -Atqc "insert into users(name) values ('after-repair')"
   waitfor "psql '$PROD' -Atc \"select count(*) from users where name = 'after-repair'\"" 1 "rows flow again after repair"
   check "replica has no event trigger" "$(psql "$PROD" -Atc 'select count(*) from pg_event_trigger')" 0
+  # Warm the freshness plumbing, then deliberately block apply while committing
+  # a source update. Returning the old snapshot (or killing the blocker by
+  # stopping the parent too early) must not satisfy create.
+  $B create freshness-warm --from prod >/dev/null || exit 1
+  $B rm freshness-warm >/dev/null || exit 1
+  psql "$PROD" -Xq -v ON_ERROR_STOP=1 -c 'BEGIN; LOCK TABLE users IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(5); COMMIT' >/dev/null &
+  freshness_blocker=$!
+  waitfor "psql '$PROD' -Atc \"SELECT count(*) FROM pg_locks WHERE relation='users'::regclass AND mode='AccessExclusiveLock' AND granted\"" 1 "freshness fixture blocks apply"
+  psql "$SRC" -Xq -v ON_ERROR_STOP=1 -c "UPDATE users SET name='fresh-at-request' WHERE id=1"
+  FRESH=$($B create fresh-after-write --from prod --print-url) || exit 1
+  wait "$freshness_blocker"; check "create lets blocked apply finish before stopping parent" "$?" 0
+  check "create includes the source commit without an external catch-up wait" "$(psql "$FRESH" -Atc 'select name from users where id=1')" fresh-at-request
+  $B rm fresh-after-write >/dev/null || exit 1
+  before_freshness_timeout=$(psql "$PROD" -Atc 'select pg_postmaster_start_time()')
+  psql "$PROD" -Xq -v ON_ERROR_STOP=1 -c 'BEGIN; LOCK TABLE users IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(5); COMMIT' >/dev/null &
+  freshness_blocker=$!
+  waitfor "psql '$PROD' -Atc \"SELECT count(*) FROM pg_locks WHERE relation='users'::regclass AND mode='AccessExclusiveLock' AND granted\"" 1 "freshness timeout fixture blocks apply"
+  psql "$SRC" -Xq -v ON_ERROR_STOP=1 -c "UPDATE users SET name='fresh-after-timeout' WHERE id=1"
+  printf '%s\n' '["create","fresh-timeout","--from","prod"]' | env ANYBRANCH_INTERNAL=1 ANYBRANCH_FRESHNESS_TIMEOUT_SECONDS=1 "$B" _worker >"$ANYBRANCH_HOME/freshness-timeout.log" 2>&1
+  check "freshness timeout refuses a stale branch" "$?" 1
+  grep -q 'has not applied the source commit' "$ANYBRANCH_HOME/freshness-timeout.log"; check "refusal is a freshness timeout" "$?" 0
+  check "freshness timeout leaves no branch directory" "$([ ! -d "$ANYBRANCH_HOME/fresh-timeout" ] && echo absent)" absent
+  check "freshness timeout does not restart parent" "$(psql "$PROD" -Atc 'select pg_postmaster_start_time()')" "$before_freshness_timeout"
+  wait "$freshness_blocker"
   # branches
   $B settings prod set branch_sql "insert into users(name) values ('seeded')"
   $B settings prod set branch_sql "insert into users(name) values ('fixtures')" --hook 20-fixtures

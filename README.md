@@ -274,5 +274,7 @@ commands through its API.
   MongoDB repair retries its failed event instead of advancing past it.
 
 See [security fixes, upgrade instructions and measured latency](docs/security-hardening.md).
+For synced PostgreSQL roots, new branches also wait for a replicated commit marker;
+see [freshness guarantees and timeout configuration](docs/postgres-freshness.md).
 
 Apache-2.0.
