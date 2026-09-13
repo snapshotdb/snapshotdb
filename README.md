@@ -1,43 +1,59 @@
 # anybranch
 
-Branch your production database like code. One binary, no dependencies, any engine.
+Branch your production database on your own server. The CLI sends requests; database files
+and database processes stay on the deployed server.
 
 ```sh
+export ANYBRANCH_SERVER=https://anybranch.example.com
+export ANYBRANCH_TOKEN='<your server access token>'
+
 anybranch preflight postgres 'postgresql://user:pass@db.example.com:5432/app'
 #   ✓ connection (PostgreSQL 16.4)  ✓ is writer  ✓ wal level (actual: logical)  ...
 #   ✓ Preflight passed.
 
-anybranch sync postgres prod 'postgresql://user:pass@db.example.com:5432/app'
-# postgresql://you@127.0.0.1:57340/app
+anybranch clone prod 'postgresql://user:pass@db.example.com:5432/app'
+# postgresql://you:<branch-password>@branches.internal:57340/app
 # prod replicates 41 tables from the source; initial copy continues in the background
 
 anybranch create feature-x --from prod --print-url
-# postgresql://you@127.0.0.1:57375/app
+# postgresql://you:<branch-password>@branches.internal:57375/app
 ```
 
-`prod` is a local replica kept in sync with production, rows and schema changes alike, by the
+`prod` is a replica on the deployed server kept in sync with production, rows and schema changes alike, by the
 engine's own replication. Every `create` is a copy-on-write clone of it with its own server on
-its own port: real data, writable, isolated, and holding no production credentials. A 50 GiB
-branch costs the same as a 50 MiB one because nothing is copied until a page changes. Idle
+its own port: real data, writable, isolated, and holding no production credentials. The first
+replica requires a full transfer and enough server disk for the data. Subsequent branches
+share filesystem blocks until pages change; metadata, startup, and writes still cost space and time. Idle
 branches suspend after five minutes and resume on the next connection; the URL never changes.
 
 This is the open-source shape of what hosted products such as Ardent sell: preflight, a
 replica of production, instant branches off it, and repair when replication breaks. The
-differences: it runs on your machine, uses Postgres logical replication, MySQL GTID
+differences: you deploy the server yourself; it uses Postgres logical replication, MySQL GTID
 replication, and MongoDB change streams instead of a proprietary pipeline, and is not limited
 to Postgres.
 
 ## Install
 
 ```sh
-cargo install --git https://github.com/GitHoobar/anybranch      # with a Rust toolchain
-# or download a binary for macOS (arm64, x86_64) or Linux (x86_64, aarch64) from the Releases page
-anybranch service install                                        # optional: restore branches at login
+cargo install --path . --locked      # build the client/server version from this checkout
 ```
+
+Deploy the server before using database commands: see [server deployment](docs/server.md).
+The client/server change is unreleased; older v0.3.0 release binaries still use local storage.
+Without `ANYBRANCH_SERVER`, the client fails; it never falls back to a local database copy.
+The client only needs the Anybranch binary. Engine binaries and copy-on-write storage belong
+on the server. `ANYBRANCH_HOME` controls **server** storage, not client storage.
+
+Requests become authenticated server jobs. The CLI waits and prints the result; `--detach`
+returns a job ID immediately, and `anybranch job <id>` reconnects to it. A lost client
+connection does not cancel the server operation. PostgreSQL's initial table copy continues
+after the clone job returns; use `status` to monitor it.
 
 ## Commands
 
 ```
+anybranch clone <name> <connection-string>                  infer the engine and create a server-side replica
+anybranch job <id>                                         wait for an existing server job
 anybranch preflight <postgres|mysql|mongodb> <url> [--schemas a,b] [--format json]   check a source; creates nothing (exit 2 on failure)
 anybranch import <postgres|mysql|sqlite|mongodb> <name> <datadir|file|--new>
 anybranch sync   <postgres|mysql|mongodb> <name> <url> [--schemas a,b] [--fix-replica-identity]   root kept in sync with production
@@ -55,7 +71,8 @@ anybranch lock|unlock <name>                               protect a branch from
 anybranch start|stop|rm <name>
 ```
 
-`import` makes a root from a stopped data directory, a SQLite file, or `--new`. `sync` makes a
+`import` makes a root from a stopped data directory, a SQLite file, or `--new` on the server.
+File paths, including `@file` SQL hooks, refer to the server filesystem. `sync` makes a
 root that replicates from a live database. Both are branched the same way. `create` and `sync`
 make the new branch current, so `anybranch info --print-url` needs no name.
 
@@ -66,7 +83,7 @@ make the new branch current, so `anybranch info --print-url` needs no name.
 | postgres | `--new`, stopped data dir | logical replication           | event trigger replay | 0.2 s stopped parent, 0.5 s running |
 | mysql    | `--new`, stopped datadir  | GTID replication              | native (binlog)      | 0.4 s, 1.7 s |
 | mongodb  | `--new`, stopped dbpath   | `mongodump` + change streams  | n/a                  | 0.3 s, 0.9 s |
-| sqlite   | `--new`, a `.sqlite` file | not applicable                | n/a                  | milliseconds, no process |
+| sqlite   | `--new`, a `.sqlite` file | not applicable                | n/a                  | SQL-over-HTTP endpoint |
 
 Binaries are found on `PATH`: `pg_ctl initdb psql pg_dump pg_dumpall`, `mysqld mysql mysqldump`,
 `mongod mongosh` plus `mongodump mongorestore` for sync. Every mongod runs as a single-node
@@ -78,8 +95,9 @@ resume, a simulated reboot, credentials, settings, and teardown.
 
 ## Verified at scale
 
-Measured on an M5 Pro laptop (APFS) with datasets generated by pgbench, `INSERT ... SELECT`
-doubling, and `insertMany` of random documents. Branch time does not depend on data size.
+Historical engine measurements from v0.3.0 on an M5 Pro (APFS), before the client/server
+change, with datasets generated by pgbench, `INSERT ... SELECT` doubling, and `insertMany`
+of random documents. These are not measurements of the new remote API or of a 1 TB database.
 
 | | Postgres, 88 GB, 600 M rows | MySQL, 4.5 GB, 4.2 M rows | MongoDB, 9.8 GB, 5 M docs |
 |---|---|---|---|
@@ -98,6 +116,10 @@ Two bugs came out of these runs and are fixed: `status` used to refresh the publ
 every time it ran, which stalled the apply worker during a long initial copy; and the
 default 60-second replication timeouts dropped the link whenever a DDL replay on a big table
 took longer than that. Both sides of the link now allow 30 minutes.
+
+The [remote scale test](docs/server.md#scale-test) generates synthetic PostgreSQL data up to
+1 TB, verifies its measured size, and checks replication, schema changes, and isolation.
+A 1 TB pass must come from an actual completed run; the generator alone is not verification.
 
 ## What `sync` needs from production
 
@@ -164,9 +186,9 @@ failed while running, 2 the command was wrong or preflight did not pass; with `-
 errors are printed as `{"error": "..."}`. Client TLS for the source goes in the URL itself
 (`?sslmode=verify-full&sslrootcert=...&sslcert=...&sslkey=...` for Postgres).
 
-Idle branches stop their engine after `ANYBRANCH_IDLE_MINUTES` (default 5, 0 disables) and
+Idle branches stop their engine after the server's `ANYBRANCH_IDLE_MINUTES` (default 5, 0 disables) and
 resume when a client connects; the proxy on the branch's port stays. Synced roots never
-suspend. After a reboot run `anybranch start <name>` once.
+suspend. Starting the server after a reboot restores proxies and synced roots.
 
 ## Agents and CI
 
@@ -189,7 +211,7 @@ anybranch rm "pr-$PR"
 ## How it works
 
 ```
-~/.anybranch/<name>/
+<server ANYBRANCH_HOME>/<name>/
   engine       postgres | mysql | sqlite | mongodb
   parent       optional
   source       optional production URL (mode 0600); makes this a synced root
@@ -201,15 +223,23 @@ anybranch rm "pr-$PR"
 Cloning is `cp -cpR` on macOS (clonefile(2) per file) and `cp -a --reflink=always` on Linux
 (Btrfs, XFS with reflink, bcachefs). Branching a running parent holds it, stops it, clones,
 and restarts it, because per-file clones are only a consistent snapshot while nothing is
-writing. Servers bind `127.0.0.1` only. Override the location with `ANYBRANCH_HOME`.
+writing. Engines bind `127.0.0.1` on the server. The database proxies bind the server's
+`--db-bind` address, and returned URLs use `--public-host`. The control API uses a bearer
+token; expose it through HTTPS or an SSH tunnel. See [deployment](docs/server.md).
 
 ## Build and test
 
 ```sh
 cargo build --release   # target/release/anybranch
 cargo test
+python3 -m unittest discover -s scripts -p 'test_*.py'
 ./e2e.sh                # fake production -> preflight -> sync -> schema change -> repair -> branches -> teardown
 ```
+
+On Linux, point `TMPDIR` at a reflink-capable volume when running the Rust tests. The
+integration tests deliberately start a disposable server fixture; client storage remains
+separate and is checked for absence. `e2e.sh` also starts a disposable server and sends all
+commands through its API.
 
 ## Known limits
 
@@ -219,7 +249,13 @@ cargo test
   as one query) replays the DML on the replica too, and the streamed rows then collide and
   pause the stream. Send such migrations statement by statement, or `rm` and `sync` again.
   `CREATE INDEX CONCURRENTLY` is replayed as a plain `CREATE INDEX`.
-- Single machine: no accounts, teams, or remote access. Branch URLs are `127.0.0.1`.
+- One deployed server and one administrative API token; no tenant isolation or per-user
+  authorization. All replicas and branches for that deployment share its filesystem.
+- SQLite returns a private SQL-over-HTTP URL. It uses the request format in
+  [prepared agent branches](docs/prepared-branches.md); native SQLite file drivers cannot
+  open that URL. PostgreSQL, MySQL, and MongoDB use their native network protocols.
+- Jobs serialize engine commands. Queued/running jobs are marked interrupted after a server
+  restart and are not automatically retried. Inspect branch state before resubmitting.
 - Roots anybranch creates (`--new`, `sync`) get a generated admin password, and every branch
   rotates to its own on first start, so a branch URL never opens its parent. Postgres accepts
   the password over TCP and trusts only its Unix socket, which anybranch itself uses; MongoDB

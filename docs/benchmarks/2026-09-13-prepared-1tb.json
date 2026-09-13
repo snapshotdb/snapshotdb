@@ -1,0 +1,32 @@
+{
+  "state": "passed",
+  "passed": true,
+  "checks": [
+    "initial benchmark and retained regression tests passed",
+    "candidate baseline contains the required physical table/index bytes",
+    "four simultaneous agents received distinct URLs",
+    "all four allocations and first committed reads/writes beat 1 second",
+    "agent 1 retained its isolated committed write",
+    "agent 2 retained its isolated committed write",
+    "agent 3 retained its isolated committed write",
+    "agent 4 retained its isolated committed write",
+    "baseline unchanged by agents",
+    "clients created no local database storage"
+  ],
+  "minimum_bytes": 1000000000000,
+  "started_at": "2026-09-13T10:10:41.741111+00:00",
+  "measurement": "CLI launch, URL, new authenticated PostgreSQL connection, read, committed write, read-back; same EC2 host",
+  "elapsed_seconds": 9.15,
+  "retained_seed": "agent-latency-seed-213ddb3b",
+  "measured_table_bytes": 1000061067264,
+  "preparation_seconds": 4.913,
+  "claim_read_write_ms": [
+    64.13,
+    65.79,
+    103.62,
+    105.35
+  ],
+  "retained_service": "anybranch-tb-agent-server",
+  "retained_home": "/srv/anybranch-tb/agent-latency",
+  "service_result": "success"
+}

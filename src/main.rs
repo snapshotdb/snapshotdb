@@ -7,9 +7,12 @@
 //!
 //! Every server branch has a stable public port owned by a small proxy (proxy.rs) and an
 //! engine port behind it. Idle engines are suspended and resumed on the next connection.
-//! Cloning is `cp` with the platform's clone flag, so size never matters.
+//! The client submits authenticated jobs; only the deployed server clones database files.
 mod preflight;
 mod proxy;
+mod remote;
+mod pool;
+mod sqlite;
 
 use std::{
     collections::HashMap,
@@ -23,10 +26,14 @@ use std::{
 };
 
 const USAGE: &str = "usage:
+  anybranch serve --bind <address:port> --public-host <hostname> [--db-bind <ip>]   deploy the database server
+  anybranch clone <name> <connection-string>                  create a replica on the deployed server
+  anybranch job <id>                                         wait for a previously submitted server job
   anybranch preflight <postgres|mysql|mongodb> <url> [--schemas a,b] [--format json]   check a source; creates nothing (exit 2 on failure)
   anybranch import <postgres|mysql|sqlite|mongodb> <name> <datadir|file|--new>
   anybranch sync   <postgres|mysql|mongodb> <name> <url> [--schemas a,b] [--fix-replica-identity]   root kept in sync with production
   anybranch create <name> --from <parent> [--print-url] [--format json]
+  anybranch prepare <snapshot> --from <parent> --count <1-32>   freeze a snapshot and fill its ready branch pool
   anybranch info   [name] [--print-url] [--format json]      details of a branch (default: current)
   anybranch url    [name]
   anybranch switch <name>                                    make a branch current
@@ -39,9 +46,9 @@ const USAGE: &str = "usage:
                                                              keys: default_db, branch_sql (@file or SQL; several via --hook, run in name order), source
   anybranch lock|unlock <name>                               protect a branch from rm
   anybranch start|stop|rm <name>
-  anybranch up                                               after a reboot: proxies for every branch, engines for synced roots
-  anybranch service install|uninstall                        run `anybranch up` at login (launchd / systemd --user)
-env: ANYBRANCH_HOME (default ~/.anybranch)   ANYBRANCH_IDLE_MINUTES (default 5; 0 never suspends)";
+client env: ANYBRANCH_SERVER (HTTPS API URL)   ANYBRANCH_TOKEN (server access token)
+server env: ANYBRANCH_HOME (server storage)   ANYBRANCH_TOKEN   ANYBRANCH_IDLE_MINUTES
+All database commands execute on the deployed server. --detach returns a server job ID.";
 
 pub type R<T> = Result<T, String>;
 
@@ -85,7 +92,20 @@ impl Args {
 }
 
 fn main() {
-    let a = Args::parse(env::args().skip(1).collect());
+    let raw = match remote::route(env::args().skip(1).collect()) {
+        Ok(Some(raw)) => raw,
+        Ok(None) => return,
+        Err(e) => { eprintln!("error: {e}"); process::exit(1); }
+    };
+    // Also serialize workers across a control-server restart with a surviving child.
+    let _worker_lock = if env::var("ANYBRANCH_INTERNAL").as_deref() == Ok("1")
+        && raw.first().map(String::as_str) != Some("_proxy") {
+        match remote::worker_lock(false) {
+            Ok(lock) => Some(lock),
+            Err(e) => { eprintln!("error: {e}"); process::exit(1); }
+        }
+    } else { None };
+    let a = Args::parse(raw);
     if a.flag("version") {
         println!("anybranch {}", env!("CARGO_PKG_VERSION"));
         return;
@@ -122,6 +142,7 @@ fn main() {
                 None => Err(format!("create needs --from <parent>\n{USAGE}")),
             }
         }
+        ["prepare", name] => pool::prepare(name, &a).map(|v| println!("{v}")),
         ["info"] | ["info", _] => current(p.get(1)).and_then(|b| emit(&b, &a, None)),
         ["url"] | ["url", _] => current(p.get(1)).and_then(|b| b.url()).map(|u| println!("{u}")),
         ["switch", name] => Branch::load(name).and_then(|b| b.set_current()).map(|_| println!("switched to {name}")),
@@ -138,9 +159,6 @@ fn main() {
         ["start", name] => Branch::load(name).and_then(|b| b.start().and(b.url())).map(|u| println!("{u}")),
         ["stop", name] => Branch::load(name).and_then(|b| b.stop()),
         ["rm", name] => Branch::load(name).and_then(|b| b.rm()),
-        ["up"] => up(),
-        ["service", "install"] => service(true),
-        ["service", "uninstall"] => service(false),
         ["_proxy", name] => proxy::serve(name),
         _ => Err(USAGE.to_string()),
     };
@@ -237,9 +255,7 @@ impl Drop for Hold {
 
 impl Branch {
     fn new(name: &str, engine: Engine) -> R<Branch> {
-        if name.is_empty() || name.starts_with(['.', '_']) || name.contains('/') || name.len() > 40 {
-            return Err(format!("invalid branch name {name:?}: 1-40 chars, no '/', not starting with '.' or '_'"));
-        }
+        remote::validate_name(name)?;
         let b = Branch { name: name.into(), dir: home().join(name), engine };
         if b.dir.exists() {
             return Err(format!("branch {name} already exists"));
@@ -250,7 +266,8 @@ impl Branch {
     }
 
     pub fn load(name: &str) -> R<Branch> {
-        let dir = home().join(name);
+        remote::validate_name(name)?;
+        let dir = fs::canonicalize(home().join(name)).map_err(|_| format!("no branch named {name}"))?;
         let engine = fs::read_to_string(dir.join("engine")).map_err(|_| format!("no branch named {name}"))?;
         Ok(Branch { name: name.into(), dir, engine: Engine::parse(engine.trim())? })
     }
@@ -276,6 +293,7 @@ impl Branch {
     fn root(&self) -> Branch {
         let mut cur = Branch { name: self.name.clone(), dir: self.dir.clone(), engine: self.engine };
         while let Some(p) = cur.parent().and_then(|p| Branch::load(&p).ok()) {
+            if pool::is_snapshot(&cur) { break; }
             cur = p;
         }
         cur
@@ -335,7 +353,7 @@ impl Branch {
     /// a fresh MySQL or MongoDB root none at all.
     fn ensure_credentials(&self) -> R<()> {
         let run = self.run();
-        if !self.managed() || run.join("creds").exists() {
+        if (self.engine != Engine::Sqlite && !self.managed()) || run.join("creds").exists() {
             return Ok(());
         }
         if self.password().is_none() {
@@ -398,8 +416,10 @@ impl Branch {
     }
 
     fn status_word(&self) -> &'static str {
+        if pool::is_snapshot(self) { return "snapshot"; }
         match (self.engine, self.running(), self.proxy_alive(), self.source().is_some()) {
-            (Engine::Sqlite, ..) => "file",
+            (Engine::Sqlite, _, true, _) => "running",
+            (Engine::Sqlite, ..) => "stopped",
             (_, true, _, true) => "syncing",
             (_, true, _, false) => "running",
             (_, false, true, _) => "suspended",
@@ -409,8 +429,9 @@ impl Branch {
 
     /// Public URL through the proxy. Valid while the branch is suspended: connecting resumes it.
     pub fn url(&self) -> R<String> {
+        if pool::is_snapshot(self) { return Err("prepared snapshots are immutable; create a branch from this snapshot".into()); }
         if self.engine == Engine::Sqlite {
-            return Ok(format!("sqlite:///{}", self.data().join("db.sqlite").display()));
+            return sqlite::url(self);
         }
         let port = self.port().filter(|_| self.proxy_alive() || self.running());
         let port = port.ok_or_else(|| format!("{0} is stopped; run: anybranch start {0}", self.name))?;
@@ -432,6 +453,7 @@ impl Branch {
     }
 
     fn url_on(&self, port: u16, public: bool) -> String {
+        let host = if public { env::var("ANYBRANCH_PUBLIC_HOST").unwrap_or_else(|_| "127.0.0.1".into()) } else { "127.0.0.1".into() };
         let db = self.database();
         let user = self.admin_user();
         let pw = if public { self.password() } else { self.inherited_password() };
@@ -441,18 +463,21 @@ impl Branch {
         };
         match self.engine {
             // ponytail: assumes the cluster's superuser is $USER (initdb's default); set default_db for the database.
-            Engine::Postgres => format!("postgresql://{cred}127.0.0.1:{port}/{db}"),
-            Engine::Mysql => format!("mysql://{cred}127.0.0.1:{port}/{db}"),
+            Engine::Postgres => format!("postgresql://{cred}{host}:{port}/{db}"),
+            Engine::Mysql => format!("mysql://{cred}{host}:{port}/{db}"),
             Engine::Mongodb => {
                 // directConnection: drivers must not discover the engine port behind the proxy.
                 let mut q = vec![];
                 if public {
                     q.push("directConnection=true");
+                    // mongosh otherwise uses a 2s selection timeout, shorter than a cold
+                    // resume on a small server. Allow the proxy time to start the engine.
+                    q.push("serverSelectionTimeoutMS=30000");
                 }
                 if pw.is_some() {
                     q.push("authSource=admin");
                 }
-                format!("mongodb://{}127.0.0.1:{port}/{db}{}{}", if pw.is_some() { cred } else { String::new() }, if q.is_empty() { "" } else { "?" }, q.join("&"))
+                format!("mongodb://{}{host}:{port}/{db}{}{}", if pw.is_some() { cred } else { String::new() }, if q.is_empty() { "" } else { "?" }, q.join("&"))
             }
             Engine::Sqlite => unreachable!(),
         }
@@ -466,14 +491,13 @@ impl Branch {
         if let Some(pw) = pw {
             c.env("MYSQL_PWD", pw);
         }
-        if !self.database().is_empty() {
-            c.args(["-D", &self.database()]);
-        }
         c
     }
 
     fn mysql(&self) -> Command {
-        self.mysql_with(self.inherited_password().as_deref())
+        let mut c = self.mysql_with(self.inherited_password().as_deref());
+        if !self.database().is_empty() { c.args(["-D", &self.database()]); }
+        c
     }
 
     /// Run SQL (or JavaScript for MongoDB) on this branch's own server; returns stdout.
@@ -537,20 +561,22 @@ impl Branch {
 
     /// Start proxy and engine; the branch's public URL is usable afterwards.
     pub fn start(&self) -> R<()> {
+        pool::writable(self)?;
         if self.engine == Engine::Sqlite {
-            return Ok(());
+            self.ensure_credentials()?;
+            return self.ensure_proxy();
         }
         self.ensure_proxy()?;
         self.start_engine()
     }
 
     fn ensure_proxy(&self) -> R<()> {
-        if self.engine == Engine::Sqlite || self.proxy_alive() {
+        if self.proxy_alive() {
             return Ok(());
         }
         let run = self.run();
         let port = match self.port() {
-            Some(p) if port_free(p) => p,
+            Some(p) if proxy::port_free(p) => p,
             Some(p) => {
                 let n = free_port();
                 eprintln!("warning: port {p} is taken; {} moves to {n}", self.name);
@@ -569,11 +595,12 @@ impl Branch {
             .spawn()
             .map_err(|e| format!("spawn proxy: {e}"))?;
         io(fs::write(run.join("proxypid"), child.id().to_string()))?;
-        wait(|| !port_free(port), 10, "proxy to listen")
+        wait(|| !proxy::port_free(port), 10, "proxy to listen")
     }
 
     /// Start the engine behind the proxy (also what the proxy calls to resume).
     pub fn start_engine(&self) -> R<()> {
+        pool::writable(self)?;
         if self.engine == Engine::Sqlite || self.running() {
             return Ok(());
         }
@@ -765,6 +792,7 @@ impl Branch {
     }
 
     fn rm(&self) -> R<()> {
+        pool::before_remove(self)?;
         if self.dir.join("lock").exists() {
             return Err(format!("{0} is locked; run: anybranch unlock {0}", self.name));
         }
@@ -796,7 +824,12 @@ impl Branch {
         if self.is_current() {
             let _ = fs::remove_file(home().join(".current"));
         }
-        io(fs::remove_dir_all(&self.dir))
+        io(fs::remove_dir_all(&self.dir))?;
+        let alias = home().join(&self.name);
+        if fs::symlink_metadata(&alias).map(|m| m.file_type().is_symlink()).unwrap_or(false) {
+            io(fs::remove_file(alias))?;
+        }
+        Ok(())
     }
 
     // --- introspection -------------------------------------------------------------
@@ -1097,6 +1130,7 @@ impl Branch {
     }
 
     fn remove_setting(&self, key: &str, hook: Option<&String>) -> R<()> {
+        pool::writable(self)?;
         match key {
             "default_db" | "branch_sql" => io(fs::remove_file(self.dir.join(Self::hook_file(key, hook)?)).or(Ok(()))),
             _ => Err(format!("cannot remove {key:?}; only default_db and branch_sql")),
@@ -1320,6 +1354,12 @@ impl Branch {
 
 fn create(name: &str, parent: &str) -> R<Branch> {
     let p = Branch::load(parent)?;
+    if pool::is_snapshot(&p) { return pool::claim(name, &p); }
+    create_cold(name, parent)
+}
+
+fn create_cold(name: &str, parent: &str) -> R<Branch> {
+    let p = Branch::load(parent)?;
     if let Ok(existing) = Branch::load(name) {
         // Re-running create is safe: same branch, same URL. Scripts and agents rely on that.
         if existing.parent().as_deref() == Some(parent) {
@@ -1329,10 +1369,11 @@ fn create(name: &str, parent: &str) -> R<Branch> {
         }
         return Err(format!("branch {name} already exists and was not created from {parent}"));
     }
+    ensure_branch_ready(&p)?;
     let b = Branch::new(name, p.engine)?;
     let was_running = p.running();
-    p.refresh();
     let cloned = {
+        let _sqlite_lock = sqlite::lock(&p)?;
         // Hold the parent so its proxy cannot wake the engine while the files are cloned.
         let _hold = p.hold()?;
         if was_running {
@@ -1349,9 +1390,28 @@ fn create(name: &str, parent: &str) -> R<Branch> {
     Ok(b)
 }
 
+fn ensure_branch_ready(p: &Branch) -> R<()> {
+    if p.engine == Engine::Postgres && p.source().is_some() {
+        p.start()?;
+        p.refresh();
+        let ready = p.sql(&format!(
+            "SELECT subenabled AND EXISTS (SELECT 1 FROM pg_subscription_rel WHERE srsubid = s.oid) \
+             AND NOT EXISTS (SELECT 1 FROM pg_subscription_rel WHERE srsubid = s.oid AND srsubstate <> 'r') \
+             FROM pg_subscription s WHERE subname = '{}'", p.subname()
+        ))?;
+        if ready != "t" {
+            return Err(format!("replica {0} is still copying or replication is paused; check: anybranch status {0}", p.name));
+        }
+    }
+    Ok(())
+}
+
 fn reset(name: &str) -> R<Branch> {
     let b = Branch::load(name)?;
+    pool::writable(&b)?;
     let parent = b.parent().ok_or_else(|| format!("{name} is a root; only branches with a parent can be reset"))?;
+    if pool::is_snapshot(&Branch::load(&parent)?) { return Err("create a new prepared branch before removing this one; reset is unavailable for prepared branches".into()); }
+    ensure_branch_ready(&Branch::load(&parent)?)?;
     b.rm()?;
     create(name, &parent)
 }
@@ -1380,11 +1440,18 @@ fn all_branches() -> Vec<Branch> {
 /// After a reboot: every branch gets its proxy back so URLs work again, and synced roots
 /// restart so replication resumes. Everything else resumes on its first connection.
 fn up() -> R<()> {
-    for b in all_branches() {
+    let branches = all_branches();
+    // Restore every source proxy before starting subscribers, regardless of name order.
+    for b in &branches {
+        if pool::is_snapshot(b) { continue; }
+        b.ensure_proxy()?;
+    }
+    for b in branches {
+        if pool::is_snapshot(&b) { continue; }
         if b.engine == Engine::Sqlite {
             continue;
         }
-        let result = if b.source().is_some() { b.start() } else { b.ensure_proxy() };
+        let result = if b.source().is_some() || b.dir.join("pool-ready").exists() { b.start() } else { b.ensure_proxy() };
         match result {
             Ok(()) => println!("{}\t{}", b.name, b.status_word()),
             Err(e) => eprintln!("{}\tfailed: {e}", b.name),
@@ -1393,57 +1460,26 @@ fn up() -> R<()> {
     Ok(())
 }
 
-/// Run `anybranch up` at login: a launchd agent on macOS, a systemd user unit on Linux.
-fn service(install: bool) -> R<()> {
-    let exe = io(env::current_exe())?;
-    let path = env::var("PATH").unwrap_or_default();
-    let home_dir = home();
-    if cfg!(target_os = "macos") {
-        let plist = PathBuf::from(env::var("HOME").unwrap_or_default()).join("Library/LaunchAgents/dev.anybranch.up.plist");
-        let uid = out(Command::new("id").arg("-u"))?;
-        let _ = sh(Command::new("launchctl").args(["bootout", &format!("gui/{uid}/dev.anybranch.up")]));
-        if !install {
-            let _ = fs::remove_file(&plist);
-            return Ok(println!("removed {}", plist.display()));
+/// Stop consumers before their sources so disable_on_error cannot turn a planned
+/// service restart into a permanently paused subscription. Proxies must not wake
+/// an engine during the ordered shutdown. systemd must use KillMode=mixed.
+fn down() -> R<()> {
+    let mut branches = all_branches();
+    branches.sort_by(|a, b| a.dir.cmp(&b.dir));
+    branches.dedup_by(|a, b| a.dir == b.dir);
+    branches.sort_by_key(|b| b.source().is_none());
+    let _holds: Vec<Hold> = branches.iter().map(|b| b.hold()).collect::<R<_>>()?;
+    for b in &branches { b.stop()?; }
+    for b in branches {
+        if let Some(pid) = live_pid(&b.run().join("proxypid")) {
+            sh(Command::new("kill").args(["-TERM", &pid.to_string()]))?;
         }
-        io(fs::create_dir_all(plist.parent().unwrap()))?;
-        io(fs::write(&plist, format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
-             <plist version=\"1.0\"><dict>\n  <key>Label</key><string>dev.anybranch.up</string>\n  \
-             <key>ProgramArguments</key><array><string>{}</string><string>up</string></array>\n  \
-             <key>RunAtLoad</key><true/>\n  <key>AbandonProcessGroup</key><true/>\n  \
-             <key>EnvironmentVariables</key><dict><key>PATH</key><string>{}</string><key>ANYBRANCH_HOME</key><string>{}</string></dict>\n  \
-             <key>StandardOutPath</key><string>{}/up.log</string><key>StandardErrorPath</key><string>{}/up.log</string>\n</dict></plist>\n",
-            exe.display(), xml(&path), xml(&home_dir.display().to_string()), home_dir.display(), home_dir.display()
-        )))?;
-        sh(Command::new("launchctl").args(["bootstrap", &format!("gui/{uid}")]).arg(&plist))?;
-        println!("installed {} (runs `anybranch up` at login)", plist.display());
-    } else {
-        let unit = PathBuf::from(env::var("HOME").unwrap_or_default()).join(".config/systemd/user/anybranch.service");
-        if !install {
-            let _ = sh(Command::new("systemctl").args(["--user", "disable", "--now", "anybranch"]));
-            let _ = fs::remove_file(&unit);
-            return Ok(println!("removed {}", unit.display()));
-        }
-        io(fs::create_dir_all(unit.parent().unwrap()))?;
-        io(fs::write(&unit, format!(
-            "[Unit]\nDescription=anybranch: bring database branches back after boot\n\n[Service]\nType=oneshot\nExecStart={} up\n\
-             Environment=PATH={}\nEnvironment=ANYBRANCH_HOME={}\n\n[Install]\nWantedBy=default.target\n",
-            exe.display(), path, home_dir.display()
-        )))?;
-        sh(Command::new("systemctl").args(["--user", "daemon-reload"]))?;
-        sh(Command::new("systemctl").args(["--user", "enable", "--now", "anybranch"]))?;
-        println!("installed {} (runs `anybranch up` at login)", unit.display());
     }
     Ok(())
 }
 
-fn xml(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-}
-
 fn list(json: bool) -> R<()> {
-    let branches = all_branches();
+    let branches: Vec<_> = all_branches().into_iter().filter(|b| !b.name.starts_with(pool::PREFIX)).collect();
     if json {
         let items: R<Vec<String>> = branches.iter().map(|b| b.info_json()).collect();
         println!("[{}]", items?.join(","));
@@ -1539,6 +1575,7 @@ fn decode(s: &str) -> String {
 
 /// Hide the password in a URL for display.
 fn redact(url: &str) -> String {
+    if let Some((base, _)) = url.split_once("?token=") { return format!("{base}?token=***"); }
     match (url.split_once("://"), url.rsplit_once('@')) {
         (Some((scheme, rest)), Some((_, host))) if rest.contains('@') => {
             let auth = rest.split('@').next().unwrap_or("");
@@ -1792,27 +1829,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sqlite_branches_are_isolated() {
-        let tmp = env::temp_dir().join(format!("anybranch-test-{}", process::id()));
-        env::set_var("ANYBRANCH_HOME", &tmp);
-        let q = |branch: &str, sql: &str| {
-            let out = Command::new("sqlite3").arg(home().join(branch).join("data/db.sqlite")).arg(sql).output().unwrap();
-            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-            String::from_utf8(out.stdout).unwrap().trim().to_string()
-        };
-        import("sqlite", "main", "--new").unwrap();
-        q("main", "create table t(x); insert into t values(1)");
-        create("dev", "main").unwrap();
-        q("dev", "insert into t values(2)");
-        assert_eq!(q("main", "select count(*) from t"), "1");
-        assert_eq!(q("dev", "select count(*) from t"), "2");
-        assert_eq!(create("dev", "main").unwrap().name, "dev", "re-running create returns the same branch");
-        assert!(create("dev", "dev").is_err(), "a different parent is refused");
-        assert!(Branch::load("dev").unwrap().is_current());
-        for name in ["dev", "main"] {
-            Branch::load(name).unwrap().rm().unwrap();
+    fn public_urls_use_server_host_and_maintenance_stays_on_loopback() {
+        let previous = env::var_os("ANYBRANCH_PUBLIC_HOST");
+        env::set_var("ANYBRANCH_PUBLIC_HOST", "branches.internal");
+        for engine in [Engine::Postgres, Engine::Mysql, Engine::Mongodb] {
+            let branch = Branch { name: "url-only".into(), dir: PathBuf::from("/nonexistent-anybranch-url-test"), engine };
+            assert!(branch.url_on(54321, true).contains("branches.internal:54321"));
+            assert!(branch.url_on(54321, false).contains("127.0.0.1:54321"));
         }
-        let _ = fs::remove_dir_all(&tmp);
+        match previous {
+            Some(value) => env::set_var("ANYBRANCH_PUBLIC_HOST", value),
+            None => env::remove_var("ANYBRANCH_PUBLIC_HOST"),
+        }
     }
 
     #[test]

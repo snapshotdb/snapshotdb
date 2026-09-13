@@ -24,10 +24,17 @@ pub fn idle_minutes() -> u64 {
     env::var("ANYBRANCH_IDLE_MINUTES").ok().and_then(|v| v.parse().ok()).unwrap_or(5)
 }
 
+pub fn port_free(port: u16) -> bool {
+    let bind = env::var("ANYBRANCH_DB_BIND").unwrap_or_else(|_| "127.0.0.1".into());
+    TcpListener::bind((bind.as_str(), port)).is_ok()
+}
+
 pub fn serve(name: &str) -> R<()> {
     let b = Branch::load(name)?;
+    if b.engine == crate::Engine::Sqlite { return crate::sqlite::serve(&b); }
     let port = b.port().ok_or("no public port allocated")?;
-    let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| format!("bind 127.0.0.1:{port}: {e}"))?;
+    let bind = env::var("ANYBRANCH_DB_BIND").unwrap_or_else(|_| "127.0.0.1".into());
+    let listener = TcpListener::bind((bind.as_str(), port)).map_err(|e| format!("bind {bind}:{port}: {e}"))?;
     let activity = Arc::new(Activity { open: AtomicUsize::new(0), last: Mutex::new(Instant::now()), start: Mutex::new(()) });
 
     let idle = idle_minutes();
@@ -37,7 +44,9 @@ pub fn serve(name: &str) -> R<()> {
             thread::sleep(Duration::from_secs(10));
             let quiet = act.open.load(Ordering::SeqCst) == 0
                 && act.last.lock().map(|t| t.elapsed() >= Duration::from_secs(idle * 60)).unwrap_or(false);
-            if quiet && watched.running() {
+            let recently_claimed = watched.dir.join("run/claimed-at").metadata().and_then(|m| m.modified())
+                .map(|t| t.elapsed().unwrap_or_default() < Duration::from_secs(idle * 60)).unwrap_or(false);
+            if quiet && watched.running() && !watched.dir.join("pool-ready").exists() && !recently_claimed {
                 let _ = watched.stop();
             }
         });

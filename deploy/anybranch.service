@@ -1,0 +1,22 @@
+[Unit]
+Description=Anybranch database branching server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=anybranch
+Group=anybranch
+EnvironmentFile=/etc/anybranch.env
+Environment=ANYBRANCH_HOME=/srv/anybranch
+Environment=USER=anybranch
+ExecStart=/usr/local/bin/anybranch serve --bind 127.0.0.1:7432 --db-bind 0.0.0.0 --public-host branches.internal
+Restart=on-failure
+RestartSec=5
+UMask=0077
+KillMode=mixed
+TimeoutStopSec=120
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

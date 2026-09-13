@@ -1,0 +1,55 @@
+{
+  "recorded_at": "2026-09-13T13:13:43.095794+00:00",
+  "cli_package": "ardent-cli",
+  "cli_version": "0.0.104",
+  "authenticated_with": "existing local CLI session",
+  "connector_name": "anybranch-1tb-comparison",
+  "connector_id": "connector_ffcad736-d72f-406e-b19f-73948016be92",
+  "state": "waiting_after_source_fix",
+  "successful_branch_samples": 0,
+  "returned_branch_url": false,
+  "source": "same synthetic PostgreSQL source in AWS ap-south-1, measured above 1,000,000,000,000 table/index bytes",
+  "ardent_environment_region": "us-east-1",
+  "operations": [
+    {
+      "id": "op_f41cd3b0-4b58-45c5-a4bf-440bf9b236b6",
+      "status": "failed",
+      "stage": "deploying-pgstream:postgres",
+      "error": "Engine setup failed unexpectedly. Contact Ardent support.",
+      "started_at": "2026-09-13T10:03:23.736848+00:00",
+      "completed_at": "2026-09-13T10:13:39.584328+00:00"
+    },
+    {
+      "id": "op_989928fd-7909-405c-84b9-d3a82d9e4d0b",
+      "status": "failed",
+      "stage": "deploying-pgstream:postgres",
+      "error": "Engine setup failed unexpectedly. Contact Ardent support.",
+      "started_at": "2026-09-13T12:46:59.37334+00:00",
+      "completed_at": "2026-09-13T12:57:15.369325+00:00"
+    },
+    {
+      "id": "op_c2f938c2-d62b-43cf-8606-9d22db5bdc22",
+      "status": "failed",
+      "stage": "deploying-pgstream:postgres",
+      "error": "Engine setup failed unexpectedly. Contact Ardent support.",
+      "started_at": "2026-09-13T12:58:42.241986+00:00",
+      "completed_at": "2026-09-13T13:08:58.157161+00:00"
+    }
+  ],
+  "branch_error": {
+    "http_status": 422,
+    "message": "This connector's branching engine is not ready for branch creation (current state: setup pending)."
+  },
+  "diagnostic": "A second connector for a small database on the same PostgreSQL host was rejected by preflight as duplicate_source; no small-database performance conclusion is possible.",
+  "interpretation": "Earlier setup attempts encountered a confirmed source plugin configuration defect. They cannot establish Ardent service reliability or branch latency. Corrected setup is being monitored before both CLI benchmarks.",
+  "source_prerequisite_correction": {
+    "observed_at": "2026-09-13T13:08:33+00:00",
+    "issue": "wal2json installed but omitted from PostgreSQL output_plugin_libraries; repeated rejections across all three setup attempts",
+    "before": "pgoutput, test_decoding",
+    "after": "pgoutput, test_decoding, wal2json",
+    "verification": "temporary wal2json replication slot created successfully and removed on session close",
+    "later_source_activity": "active pgstream_postgres_slot using wal2json and 32 source sessions sending data",
+    "corrected_operation_id": "op_7e179294-c7a6-4a1d-8c14-f73ce3bc777a",
+    "corrected_setup_started_at": "2026-09-13T13:09:29.437890+00:00"
+  }
+}

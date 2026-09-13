@@ -10,6 +10,20 @@ cargo build --release -q || exit 1
 B=$PWD/target/release/anybranch
 export ANYBRANCH_HOME=${ANYBRANCH_HOME:-$(mktemp -d /tmp/anybranch-e2e.XXXX)}
 export ANYBRANCH_IDLE_MINUTES=0
+export ANYBRANCH_TOKEN=$(openssl rand -hex 32)
+api_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
+export ANYBRANCH_SERVER="http://127.0.0.1:$api_port"
+start_server() {
+  $B serve --bind "127.0.0.1:$api_port" --public-host 127.0.0.1 >"$ANYBRANCH_HOME/server.log" 2>&1 &
+  server_pid=$!
+  for _ in $(seq 1 50); do
+    curl -fsS -H "Authorization: Bearer $ANYBRANCH_TOKEN" "$ANYBRANCH_SERVER/v1/health" >/dev/null 2>&1 && return 0
+    sleep 0.1
+  done
+  cat "$ANYBRANCH_HOME/server.log"; return 1
+}
+start_server || exit 1
+trap 'kill "$server_pid" 2>/dev/null; wait "$server_pid" 2>/dev/null' EXIT
 fail=0
 check() { if [ "$2" = "$3" ]; then echo "  ok   $1 = $2"; else echo "  FAIL $1: got '$2' want '$3'"; fail=1; fi; }
 waitfor() { for _ in $(seq 1 120); do v=$(eval "$1" 2>/dev/null); [ "$v" = "$2" ] && break; sleep 0.3; done; check "$3" "$v" "$2"; }
@@ -20,14 +34,16 @@ refused() { "$@" >/dev/null 2>&1 && echo allowed || echo refused; }
 
 if command -v pg_ctl >/dev/null; then
   echo "postgres"
-  $B import postgres src --new >/dev/null; SRC=$($B url src)
+  $B import postgres src --new >/dev/null || exit 1
+  SRC=$($B url src); [ -n "$SRC" ] || exit 1
   echo "$SRC" | grep -qE '^postgresql://[^:]+:[0-9a-f]{32}@'; check "root has a generated password" "$?" 0
   check "TCP without the password is refused" "$(refused psql "postgresql://$USER@127.0.0.1:$(port src)/postgres" -Atc 'select 1')" refused
   psql "$SRC" -Xq -c "create table users(id serial primary key, name text); insert into users(name) select 'u'||g from generate_series(1,1000) g; create table nopk(x int);"
   $B preflight postgres "$SRC" >/dev/null 2>&1; check "preflight passes on a good source" "$?" 0
   $B preflight postgres "postgresql://nobody@127.0.0.1:1/x" >/dev/null 2>&1; check "preflight exits 2 on a bad source" "$?" 2
   $B preflight postgres "$SRC" --format json | grep -q '"name":"replica identity","state":"warn"'; check "preflight warns about table without primary key" "$?" 0
-  $B sync postgres prod "$SRC" >/dev/null 2>&1; PROD=$($B url prod)
+  $B clone prod "$SRC" >/dev/null 2>&1 || exit 1
+  PROD=$($B url prod); [ -n "$PROD" ] || exit 1
   waitfor "psql '$PROD' -Atc 'select count(*) from users'" 1000 "initial copy"
   $B status prod --format json | grep -q '"state":"syncing"'; check "status json" "$?" 0
   psql "$SRC" -Atqc "insert into users(name) values ('live')"
@@ -51,6 +67,8 @@ SQL
   psql "$PROD" -Atqc "insert into users(id, name) values (5000, 'local')"
   psql "$SRC" -Atqc "insert into users(id, name) values (5000, 'remote')"
   waitfor "$B status prod | grep -c PAUSED" 1 "conflict pauses replication instead of retrying forever"
+  $B create incomplete --from prod >/dev/null 2>&1; check "branching a paused replica is refused" "$?" 1
+  check "refused branch creates no data directory" "$([ ! -d "$ANYBRANCH_HOME/incomplete" ] && echo absent)" absent
   $B repair prod | grep -q skipped; check "repair skips the poisoned transaction" "$?" 0
   psql "$SRC" -Atqc "insert into users(name) values ('after-repair')"
   waitfor "psql '$PROD' -Atc \"select count(*) from users where name = 'after-repair'\"" 1 "rows flow again after repair"
@@ -75,19 +93,30 @@ SQL
   check "connecting to a suspended branch resumes it" "$(psql "$DEV" -Atc 'select 1')" 1
   check "branch running again" "$(st dev)" running
   $B create dev2 --from prod --format json | grep -q '"name":"dev2","engine":"postgres","parent":"prod"'; check "create --format json" "$?" 0
+  psql "$PROD" -Atqc 'ALTER SUBSCRIPTION anybranch_prod DISABLE'
+  $B reset dev >/dev/null 2>&1; check "reset refuses a paused parent" "$?" 1
+  check "refused reset preserves existing branch writes" "$(psql "$DEV" -Atc "select count(*) from users where name = 'dev'")" 1
+  psql "$PROD" -Atqc 'ALTER SUBSCRIPTION anybranch_prod ENABLE'
   $B lock prod; $B rm prod >/dev/null 2>&1; check "locked root refuses rm" "$?" 1
   $B unlock prod
-  # simulate a reboot: kill every proxy and engine, then `up`
-  for b in src prod dev dev2; do kill -TERM "$(cat "$ANYBRANCH_HOME/$b/run/proxypid")" 2>/dev/null; $B stop "$b" 2>/dev/null; done; sleep 1
+  # Simulate an orderly reboot: stop the subscriber before its fake production source.
+  # Stopping the publisher first while the subscriber stays up deliberately creates a
+  # replication error (disable_on_error can pause it), which is a different repair test.
+  for b in prod dev dev2 src; do kill -TERM "$(cat "$ANYBRANCH_HOME/$b/run/proxypid")" 2>/dev/null; $B stop "$b" 2>/dev/null; done; sleep 1
   check "after 'reboot' URLs are dead" "$(st dev)" stopped
-  $B up >/dev/null
+  kill "$server_pid"; wait "$server_pid" 2>/dev/null
+  start_server || exit 1
   check "up restores the synced root" "$(st prod)" syncing
   check "up restores branch proxies (suspended, resume on connect)" "$(st dev)" suspended
   check "URL unchanged across the reboot" "$($B url dev)" "$DEV"
   check "branch resumes on first connection after reboot" "$(psql "$DEV" -Atc 'select 1')" 1
   $B start src >/dev/null
-  $B reset dev >/dev/null
+  psql "$SRC" -Atqc "insert into users(name) values ('after-reboot')"
+  waitfor "psql '$PROD' -Atc \"select count(*) from users where name = 'after-reboot'\"" 1 "replication flows after restart"
+  $B reset dev >/dev/null; check "reset command succeeds" "$?" 0
   check "reset re-clones from replica (no seeded row twice)" "$(psql "$($B url dev)" -Atc "select count(*) from users where name = 'seeded'")" 1
+  check "reset removes branch-only writes" "$(psql "$($B url dev)" -Atc "select count(*) from users where name = 'dev'")" 0
+  check "reset includes newer replicated rows" "$(psql "$($B url dev)" -Atc "select count(*) from users where name = 'after-reboot'")" 1
   $B rm dev; $B rm dev2; $B rm prod
   # RDS-like source: a non-superuser role in an rds_superuser group. No event trigger is
   # possible, pg_dumpall --roles-only is refused, and migrations must be reconciled.
@@ -114,7 +143,7 @@ SQL
   $B rm src
 fi
 
-if command -v mysqld >/dev/null; then
+if [ "${E2E_POSTGRES_ONLY:-0}" != 1 ] && command -v mysqld >/dev/null; then
   echo "mysql"
   mu() { local hp=${1#mysql://root:}; local port=${1##*:}; port=${port%%/*}; MYSQL_PWD="${hp%%@*}" mysql --no-defaults -h 127.0.0.1 -P "$port" -u root -N -B -e "$2"; }
   $B import mysql msrc --new >/dev/null; MS=$($B url msrc)
@@ -145,7 +174,7 @@ if command -v mysqld >/dev/null; then
   $B rm mdev; $B rm mrep; $B rm msrc
 fi
 
-if command -v mongod >/dev/null && command -v mongosh >/dev/null; then
+if [ "${E2E_POSTGRES_ONLY:-0}" != 1 ] && command -v mongod >/dev/null && command -v mongosh >/dev/null; then
   echo "mongodb"
   mq() { mongosh --quiet "$1" --eval "$2"; }
   $B import mongodb mg --new >/dev/null; U=$($B url mg)
@@ -183,5 +212,7 @@ if command -v mongod >/dev/null && command -v mongosh >/dev/null; then
 fi
 
 check "no proxies left" "$(pgrep -f 'anybranch _proxy (src|prod|dev|dev2|msrc|mrep|mdev|mg|mg2)$' | wc -l | tr -d ' ')" 0
+kill "$server_pid"; wait "$server_pid" 2>/dev/null
+trap - EXIT
 rm -rf "$ANYBRANCH_HOME"
 [ $fail = 0 ] && echo "all passed" || { echo "FAILURES"; exit 1; }

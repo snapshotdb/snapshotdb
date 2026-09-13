@@ -1,0 +1,14 @@
+[Unit]
+Description=Anybranch retained database and full regression checks after the 1 TB benchmark
+After=anybranch-benchmark-1tb.service anybranch-tb.service
+RequiresMountsFor=/srv/anybranch-tb /srv/anybranch-data
+
+[Service]
+Type=exec
+ExecStart=/usr/bin/python3 /usr/local/lib/anybranch-post-benchmark.py
+ExecStopPost=/usr/bin/python3 /usr/local/lib/anybranch-post-benchmark-finish.py
+Restart=no
+UMask=0077
+KillMode=control-group
+TimeoutStopSec=120
+RuntimeMaxSec=21600

@@ -5,8 +5,12 @@ description: Do all database work on a disposable anybranch branch cloned from t
 
 # anybranch: work on a branch, never on the main database
 
-`anybranch` gives you an isolated, writable copy of the production database in well under a
-second. Writes on a branch never reach production or other branches. A branch URL carries no
+`anybranch` sends commands to a deployed server configured with `ANYBRANCH_SERVER` and
+`ANYBRANCH_TOKEN`. All database files and engines remain on that server; without a server,
+the CLI fails. Only deployment operators run `anybranch serve`.
+
+It gives you an isolated, writable copy of the production replica on the server.
+Writes on a branch never reach production or other branches. A branch URL carries no
 production credentials, so it is safe to use freely.
 
 ## Rules
@@ -49,7 +53,7 @@ anybranch rm fix-orders-index
 
 Do not write the URL to a file; ask `anybranch info --print-url` again instead.
 
-Branch names: 1-40 characters, no `/`, not starting with `.` or `_`.
+Branch names: 1-40 letters, digits, `-`, `_`, or `.`, not starting with `.` or `_`.
 
 ## What a branch contains
 

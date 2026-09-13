@@ -1,0 +1,272 @@
+{
+  "state": "passed",
+  "providers": {
+    "anybranch": {
+      "trials": [
+        {
+          "index": 0,
+          "success": true,
+          "url_ms": 1178.625,
+          "read_write_ms": 1434.535
+        },
+        {
+          "index": 1,
+          "success": true,
+          "url_ms": 1135.189,
+          "read_write_ms": 1367.731
+        },
+        {
+          "index": 2,
+          "success": true,
+          "url_ms": 1246.034,
+          "read_write_ms": 1486.301
+        },
+        {
+          "index": 3,
+          "success": true,
+          "url_ms": 1137.58,
+          "read_write_ms": 1373.329
+        },
+        {
+          "index": 4,
+          "success": true,
+          "url_ms": 1096.052,
+          "read_write_ms": 1377.037
+        },
+        {
+          "index": 5,
+          "success": true,
+          "url_ms": 1194.528,
+          "read_write_ms": 1407.492
+        },
+        {
+          "index": 6,
+          "success": true,
+          "url_ms": 1403.425,
+          "read_write_ms": 1639.1
+        },
+        {
+          "index": 7,
+          "success": true,
+          "url_ms": 1098.691,
+          "read_write_ms": 1348.449
+        },
+        {
+          "index": 8,
+          "success": true,
+          "url_ms": 1087.512,
+          "read_write_ms": 1800.631
+        },
+        {
+          "index": 9,
+          "success": true,
+          "url_ms": 1114.981,
+          "read_write_ms": 1364.142
+        },
+        {
+          "index": 10,
+          "success": true,
+          "url_ms": 1185.168,
+          "read_write_ms": 1426.533
+        },
+        {
+          "index": 11,
+          "success": true,
+          "url_ms": 1544.754,
+          "read_write_ms": 1829.594
+        },
+        {
+          "index": 12,
+          "success": true,
+          "url_ms": 1304.315,
+          "read_write_ms": 1535.139
+        },
+        {
+          "index": 13,
+          "success": true,
+          "url_ms": 1129.809,
+          "read_write_ms": 1418.232
+        },
+        {
+          "index": 14,
+          "success": true,
+          "url_ms": 1348.096,
+          "read_write_ms": 1642.181
+        },
+        {
+          "index": 15,
+          "success": true,
+          "url_ms": 1097.849,
+          "read_write_ms": 1337.18
+        },
+        {
+          "index": 16,
+          "success": true,
+          "url_ms": 1119.13,
+          "read_write_ms": 1355.996
+        },
+        {
+          "index": 17,
+          "success": true,
+          "url_ms": 1106.184,
+          "read_write_ms": 1358.639
+        },
+        {
+          "index": 18,
+          "success": true,
+          "url_ms": 1103.833,
+          "read_write_ms": 1360.449
+        },
+        {
+          "index": 19,
+          "success": true,
+          "url_ms": 1214.965,
+          "read_write_ms": 1463.437
+        }
+      ],
+      "state": "passed",
+      "summary": {
+        "n": 20,
+        "p50_ms": 1412.862,
+        "p95_ms": 1800.631,
+        "max_ms": 1829.594,
+        "all_under_6s": true
+      }
+    }
+  },
+  "checks": [
+    "source measured at least 1 TB",
+    "anybranch 0: latest source marker",
+    "anybranch 0: large-table data",
+    "anybranch 0: committed write",
+    "anybranch 0: all eight large tables present",
+    "anybranch 0: source isolation",
+    "anybranch 0: replica isolation",
+    "anybranch 1: latest source marker",
+    "anybranch 1: large-table data",
+    "anybranch 1: committed write",
+    "anybranch 1: all eight large tables present",
+    "anybranch 1: source isolation",
+    "anybranch 1: replica isolation",
+    "anybranch 2: latest source marker",
+    "anybranch 2: large-table data",
+    "anybranch 2: committed write",
+    "anybranch 2: all eight large tables present",
+    "anybranch 2: source isolation",
+    "anybranch 2: replica isolation",
+    "anybranch 3: latest source marker",
+    "anybranch 3: large-table data",
+    "anybranch 3: committed write",
+    "anybranch 3: all eight large tables present",
+    "anybranch 3: source isolation",
+    "anybranch 3: replica isolation",
+    "anybranch 4: latest source marker",
+    "anybranch 4: large-table data",
+    "anybranch 4: committed write",
+    "anybranch 4: all eight large tables present",
+    "anybranch 4: source isolation",
+    "anybranch 4: replica isolation",
+    "anybranch 5: latest source marker",
+    "anybranch 5: large-table data",
+    "anybranch 5: committed write",
+    "anybranch 5: all eight large tables present",
+    "anybranch 5: source isolation",
+    "anybranch 5: replica isolation",
+    "anybranch 6: latest source marker",
+    "anybranch 6: large-table data",
+    "anybranch 6: committed write",
+    "anybranch 6: all eight large tables present",
+    "anybranch 6: source isolation",
+    "anybranch 6: replica isolation",
+    "anybranch 7: latest source marker",
+    "anybranch 7: large-table data",
+    "anybranch 7: committed write",
+    "anybranch 7: all eight large tables present",
+    "anybranch 7: source isolation",
+    "anybranch 7: replica isolation",
+    "anybranch 8: latest source marker",
+    "anybranch 8: large-table data",
+    "anybranch 8: committed write",
+    "anybranch 8: all eight large tables present",
+    "anybranch 8: source isolation",
+    "anybranch 8: replica isolation",
+    "anybranch 9: latest source marker",
+    "anybranch 9: large-table data",
+    "anybranch 9: committed write",
+    "anybranch 9: all eight large tables present",
+    "anybranch 9: source isolation",
+    "anybranch 9: replica isolation",
+    "anybranch 10: latest source marker",
+    "anybranch 10: large-table data",
+    "anybranch 10: committed write",
+    "anybranch 10: all eight large tables present",
+    "anybranch 10: source isolation",
+    "anybranch 10: replica isolation",
+    "anybranch 11: latest source marker",
+    "anybranch 11: large-table data",
+    "anybranch 11: committed write",
+    "anybranch 11: all eight large tables present",
+    "anybranch 11: source isolation",
+    "anybranch 11: replica isolation",
+    "anybranch 12: latest source marker",
+    "anybranch 12: large-table data",
+    "anybranch 12: committed write",
+    "anybranch 12: all eight large tables present",
+    "anybranch 12: source isolation",
+    "anybranch 12: replica isolation",
+    "anybranch 13: latest source marker",
+    "anybranch 13: large-table data",
+    "anybranch 13: committed write",
+    "anybranch 13: all eight large tables present",
+    "anybranch 13: source isolation",
+    "anybranch 13: replica isolation",
+    "anybranch 14: latest source marker",
+    "anybranch 14: large-table data",
+    "anybranch 14: committed write",
+    "anybranch 14: all eight large tables present",
+    "anybranch 14: source isolation",
+    "anybranch 14: replica isolation",
+    "anybranch 15: latest source marker",
+    "anybranch 15: large-table data",
+    "anybranch 15: committed write",
+    "anybranch 15: all eight large tables present",
+    "anybranch 15: source isolation",
+    "anybranch 15: replica isolation",
+    "anybranch 16: latest source marker",
+    "anybranch 16: large-table data",
+    "anybranch 16: committed write",
+    "anybranch 16: all eight large tables present",
+    "anybranch 16: source isolation",
+    "anybranch 16: replica isolation",
+    "anybranch 17: latest source marker",
+    "anybranch 17: large-table data",
+    "anybranch 17: committed write",
+    "anybranch 17: all eight large tables present",
+    "anybranch 17: source isolation",
+    "anybranch 17: replica isolation",
+    "anybranch 18: latest source marker",
+    "anybranch 18: large-table data",
+    "anybranch 18: committed write",
+    "anybranch 18: all eight large tables present",
+    "anybranch 18: source isolation",
+    "anybranch 18: replica isolation",
+    "anybranch 19: latest source marker",
+    "anybranch 19: large-table data",
+    "anybranch 19: committed write",
+    "anybranch 19: all eight large tables present",
+    "anybranch 19: source isolation",
+    "anybranch 19: replica isolation",
+    "no local database copy"
+  ],
+  "started_at": "2026-09-13T12:48:47.350637+00:00",
+  "client": "same developer laptop",
+  "anybranch_region": "ap-south-1",
+  "ardent_region": "us-east-1",
+  "routing": "Anybranch SSH versus Ardent native TLS; routing setup for new Anybranch branch included in elapsed time",
+  "precreated_capacity": false,
+  "minimum_source_bytes": 1000000000000,
+  "measurement": "CLI process launch -> branch URL -> new authenticated connection -> fresh marker and large-table read -> committed write and read-back",
+  "prefix": "cmp2d816625",
+  "source_table_bytes": 1000119549952,
+  "summary_method": "p50: median (mean of middle two for even n); p95: nearest rank"
+}

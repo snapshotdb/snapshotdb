@@ -24,4 +24,7 @@ jobs:
           # Ubuntu's AppArmor profile confines mysqld to /var/lib/mysql; branches live elsewhere.
           sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.mysqld 2>/dev/null || true
       - name: End-to-end
-        run: ANYBRANCH_HOME=/mnt/anybranch/home ./e2e.sh
+        run: |
+          TMPDIR=/mnt/anybranch cargo test --locked
+          python3 -m unittest discover -s scripts -p 'test_*.py'
+          ANYBRANCH_HOME=/mnt/anybranch/home ./e2e.sh

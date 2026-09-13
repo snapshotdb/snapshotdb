@@ -1,0 +1,247 @@
+{
+  "state": "passed",
+  "passed": true,
+  "prefix": "fresh425bba1b",
+  "trials": [
+    {
+      "index": 0,
+      "url_ms": 1195.43,
+      "read_write_ms": 1219.231
+    },
+    {
+      "index": 1,
+      "url_ms": 1275.95,
+      "read_write_ms": 1302.45
+    },
+    {
+      "index": 2,
+      "url_ms": 972.307,
+      "read_write_ms": 994.935
+    },
+    {
+      "index": 3,
+      "url_ms": 972.146,
+      "read_write_ms": 995.338
+    },
+    {
+      "index": 4,
+      "url_ms": 973.58,
+      "read_write_ms": 997.146
+    },
+    {
+      "index": 5,
+      "url_ms": 972.003,
+      "read_write_ms": 995.218
+    },
+    {
+      "index": 6,
+      "url_ms": 1074.993,
+      "read_write_ms": 1098.293
+    },
+    {
+      "index": 7,
+      "url_ms": 972.247,
+      "read_write_ms": 995.022
+    },
+    {
+      "index": 8,
+      "url_ms": 973.758,
+      "read_write_ms": 997.832
+    },
+    {
+      "index": 9,
+      "url_ms": 971.979,
+      "read_write_ms": 994.746
+    },
+    {
+      "index": 10,
+      "url_ms": 993.184,
+      "read_write_ms": 1016.7
+    },
+    {
+      "index": 11,
+      "url_ms": 951.97,
+      "read_write_ms": 974.002
+    },
+    {
+      "index": 12,
+      "url_ms": 972.378,
+      "read_write_ms": 997.135
+    },
+    {
+      "index": 13,
+      "url_ms": 993.533,
+      "read_write_ms": 1016.96
+    },
+    {
+      "index": 14,
+      "url_ms": 972.049,
+      "read_write_ms": 995.114
+    },
+    {
+      "index": 15,
+      "url_ms": 972.285,
+      "read_write_ms": 995.082
+    },
+    {
+      "index": 16,
+      "url_ms": 994.314,
+      "read_write_ms": 1017.691
+    },
+    {
+      "index": 17,
+      "url_ms": 971.856,
+      "read_write_ms": 995.956
+    },
+    {
+      "index": 18,
+      "url_ms": 992.004,
+      "read_write_ms": 1014.544
+    },
+    {
+      "index": 19,
+      "url_ms": 1155.405,
+      "read_write_ms": 1179.293
+    }
+  ],
+  "checks": [
+    "source is at least the requested size",
+    "synced replica is at least the requested size",
+    "trial 0: branch did not exist before request",
+    "trial 0: branch has latest pre-request source marker",
+    "trial 0: actual large table readable",
+    "trial 0: committed write readable",
+    "trial 0: source isolated",
+    "trial 0: replica isolated",
+    "trial 1: branch did not exist before request",
+    "trial 1: branch has latest pre-request source marker",
+    "trial 1: actual large table readable",
+    "trial 1: committed write readable",
+    "trial 1: source isolated",
+    "trial 1: replica isolated",
+    "trial 2: branch did not exist before request",
+    "trial 2: branch has latest pre-request source marker",
+    "trial 2: actual large table readable",
+    "trial 2: committed write readable",
+    "trial 2: source isolated",
+    "trial 2: replica isolated",
+    "trial 3: branch did not exist before request",
+    "trial 3: branch has latest pre-request source marker",
+    "trial 3: actual large table readable",
+    "trial 3: committed write readable",
+    "trial 3: source isolated",
+    "trial 3: replica isolated",
+    "trial 4: branch did not exist before request",
+    "trial 4: branch has latest pre-request source marker",
+    "trial 4: actual large table readable",
+    "trial 4: committed write readable",
+    "trial 4: source isolated",
+    "trial 4: replica isolated",
+    "trial 5: branch did not exist before request",
+    "trial 5: branch has latest pre-request source marker",
+    "trial 5: actual large table readable",
+    "trial 5: committed write readable",
+    "trial 5: source isolated",
+    "trial 5: replica isolated",
+    "trial 6: branch did not exist before request",
+    "trial 6: branch has latest pre-request source marker",
+    "trial 6: actual large table readable",
+    "trial 6: committed write readable",
+    "trial 6: source isolated",
+    "trial 6: replica isolated",
+    "trial 7: branch did not exist before request",
+    "trial 7: branch has latest pre-request source marker",
+    "trial 7: actual large table readable",
+    "trial 7: committed write readable",
+    "trial 7: source isolated",
+    "trial 7: replica isolated",
+    "trial 8: branch did not exist before request",
+    "trial 8: branch has latest pre-request source marker",
+    "trial 8: actual large table readable",
+    "trial 8: committed write readable",
+    "trial 8: source isolated",
+    "trial 8: replica isolated",
+    "trial 9: branch did not exist before request",
+    "trial 9: branch has latest pre-request source marker",
+    "trial 9: actual large table readable",
+    "trial 9: committed write readable",
+    "trial 9: source isolated",
+    "trial 9: replica isolated",
+    "trial 10: branch did not exist before request",
+    "trial 10: branch has latest pre-request source marker",
+    "trial 10: actual large table readable",
+    "trial 10: committed write readable",
+    "trial 10: source isolated",
+    "trial 10: replica isolated",
+    "trial 11: branch did not exist before request",
+    "trial 11: branch has latest pre-request source marker",
+    "trial 11: actual large table readable",
+    "trial 11: committed write readable",
+    "trial 11: source isolated",
+    "trial 11: replica isolated",
+    "trial 12: branch did not exist before request",
+    "trial 12: branch has latest pre-request source marker",
+    "trial 12: actual large table readable",
+    "trial 12: committed write readable",
+    "trial 12: source isolated",
+    "trial 12: replica isolated",
+    "trial 13: branch did not exist before request",
+    "trial 13: branch has latest pre-request source marker",
+    "trial 13: actual large table readable",
+    "trial 13: committed write readable",
+    "trial 13: source isolated",
+    "trial 13: replica isolated",
+    "trial 14: branch did not exist before request",
+    "trial 14: branch has latest pre-request source marker",
+    "trial 14: actual large table readable",
+    "trial 14: committed write readable",
+    "trial 14: source isolated",
+    "trial 14: replica isolated",
+    "trial 15: branch did not exist before request",
+    "trial 15: branch has latest pre-request source marker",
+    "trial 15: actual large table readable",
+    "trial 15: committed write readable",
+    "trial 15: source isolated",
+    "trial 15: replica isolated",
+    "trial 16: branch did not exist before request",
+    "trial 16: branch has latest pre-request source marker",
+    "trial 16: actual large table readable",
+    "trial 16: committed write readable",
+    "trial 16: source isolated",
+    "trial 16: replica isolated",
+    "trial 17: branch did not exist before request",
+    "trial 17: branch has latest pre-request source marker",
+    "trial 17: actual large table readable",
+    "trial 17: committed write readable",
+    "trial 17: source isolated",
+    "trial 17: replica isolated",
+    "trial 18: branch did not exist before request",
+    "trial 18: branch has latest pre-request source marker",
+    "trial 18: actual large table readable",
+    "trial 18: committed write readable",
+    "trial 18: source isolated",
+    "trial 18: replica isolated",
+    "trial 19: branch did not exist before request",
+    "trial 19: branch has latest pre-request source marker",
+    "trial 19: actual large table readable",
+    "trial 19: committed write readable",
+    "trial 19: source isolated",
+    "trial 19: replica isolated",
+    "client created no database storage"
+  ],
+  "started_at": "2026-09-13T10:03:49.585967+00:00",
+  "measurement": "fresh CLI create from live replica -> URL -> new authenticated connection -> fresh marker + large-table read -> committed update -> read-back",
+  "precreated_capacity": false,
+  "client_location": "same EC2 host",
+  "source_table_bytes": 1000110153728,
+  "replica_table_bytes": 1000060870656,
+  "summary": {
+    "n": 20,
+    "p50_ms": 997.1405,
+    "p95_ms": 1219.231,
+    "max_ms": 1302.45,
+    "all_under_6s": true,
+    "all_under_1s": false
+  },
+  "summary_method": "p50: median (mean of middle two for even n); p95: nearest rank"
+}

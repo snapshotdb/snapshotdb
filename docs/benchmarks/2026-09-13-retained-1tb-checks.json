@@ -1,0 +1,76 @@
+{
+  "state": "passed",
+  "passed": true,
+  "checks": [
+    "scale benchmark passed at the requested physical size",
+    "retained API is ready",
+    "retained API rejects missing authentication",
+    "original branch-only writes survived handoff",
+    "original second branch stayed detached",
+    "source retained latest benchmark write",
+    "replica retained latest benchmark write",
+    "new test table is published",
+    "new test table finishes initial copy",
+    "all retained tables are ready for branching",
+    "a is detached",
+    "a retains large-table endpoint public.scale_data_0",
+    "a retains large-table endpoint public.scale_data_1",
+    "a retains large-table endpoint public.scale_data_2",
+    "a retains large-table endpoint public.scale_data_3",
+    "a retains large-table endpoint public.scale_data_4",
+    "a retains large-table endpoint public.scale_data_5",
+    "a retains large-table endpoint public.scale_data_6",
+    "a retains large-table endpoint public.scale_data_7",
+    "b is detached",
+    "b retains large-table endpoint public.scale_data_0",
+    "b retains large-table endpoint public.scale_data_1",
+    "b retains large-table endpoint public.scale_data_2",
+    "b retains large-table endpoint public.scale_data_3",
+    "b retains large-table endpoint public.scale_data_4",
+    "b retains large-table endpoint public.scale_data_5",
+    "b retains large-table endpoint public.scale_data_6",
+    "b retains large-table endpoint public.scale_data_7",
+    "source isolated from scratch branch changes",
+    "replica isolated from scratch branch changes",
+    "post-1789294135-b isolated from scratch branch changes",
+    "scratch branch resumes on connection",
+    "locked scratch branch refuses deletion",
+    "reset refuses a paused parent",
+    "refused reset preserves branch changes",
+    "source changes reach retained replica",
+    "reset adopts current replica data",
+    "reset removes branch inserts and restores deletes",
+    "retained API returns after service restart",
+    "original branch survives service restart",
+    "replication continues after service restart",
+    "scratch branch stays isolated after restart",
+    "client commands created no database directory",
+    "scratch branches cleaned up",
+    "four original benchmark databases retained"
+  ],
+  "failures": [],
+  "groups": {
+    "retained_database_checks": {
+      "passed": true,
+      "checks": 45
+    },
+    "rust": {
+      "passed": true,
+      "checks": 8
+    },
+    "python": {
+      "passed": true,
+      "checks": 7
+    },
+    "engines": {
+      "passed": true,
+      "checks": 94
+    }
+  },
+  "started_at": "2026-09-13T10:08:53.924686+00:00",
+  "elapsed_seconds": 107.57,
+  "updated_at": "2026-09-13T10:10:41.497055+00:00",
+  "fixture_table": "public.post_check_1789294134291440951",
+  "service_result": "success",
+  "finished_at": "2026-09-13T10:10:41.551845+00:00"
+}
