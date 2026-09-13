@@ -9,6 +9,12 @@ cd "$(dirname "$0")"
 cargo build --release -q || exit 1
 B=$PWD/target/release/anybranch
 export ANYBRANCH_HOME=${ANYBRANCH_HOME:-$(mktemp -d /tmp/anybranch-e2e.XXXX)}
+mkdir -p "$ANYBRANCH_HOME" || exit 1
+if [ -n "$(find "$ANYBRANCH_HOME" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+  echo 'E2E storage must be empty; use a disposable directory' >&2
+  exit 1
+fi
+chmod 700 "$ANYBRANCH_HOME" || exit 1
 export ANYBRANCH_IDLE_MINUTES=0
 export ANYBRANCH_TOKEN=$(openssl rand -hex 32)
 api_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
