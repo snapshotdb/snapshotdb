@@ -1,4 +1,5 @@
 import Effects from "./Effects";
+import SiteFooter from "./SiteFooter";
 
 function Logo({ size = 23 }: { size?: number }) {
   return (
@@ -116,11 +117,7 @@ export default function Home() {
         </div>
       </section>
 
-      <footer>
-        <a className="logo" href="#top" style={{ fontSize: 16 }}><Logo size={18} />anybranch</a>
-        <span className="sp" />
-        <a href="#how">How it works</a><a href="/console">Console</a><a href={GH}>GitHub</a><span>© 2026</span>
-      </footer>
+      <SiteFooter />
 
       <Effects />
     </div>
