@@ -60,6 +60,21 @@ export async function GET(req: NextRequest) {
     provider: "github",
   });
 
+  // CLI login: hand the session back to the local loopback the CLI is listening on.
+  const cliPort = req.cookies.get("ab_cli_port")?.value;
+  if (cliPort && /^\d{2,5}$/.test(cliPort)) {
+    const cliState = req.cookies.get("ab_cli_state")?.value || "";
+    const to = new URL(`http://127.0.0.1:${cliPort}/callback`);
+    to.searchParams.set("token", session);
+    to.searchParams.set("user", gh.login);
+    to.searchParams.set("state", cliState);
+    const r = NextResponse.redirect(to.toString());
+    r.cookies.delete("ab_cli_port");
+    r.cookies.delete("ab_cli_state");
+    r.cookies.delete(OAUTH_STATE_COOKIE);
+    return r;
+  }
+
   const res = NextResponse.redirect(new URL("/console", req.url));
   res.cookies.set(SESSION_COOKIE, session, {
     httpOnly: true,

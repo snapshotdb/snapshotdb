@@ -23,7 +23,7 @@ export default function Home() {
       <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
 
       <nav><div className="row">
-        <a className="logo" href="#top"><Logo />snapshot<em>db</em></a>
+        <a className="logo" href="#top"><Logo /><span className="wm">snapshot<em>db</em></span></a>
         <div className="links"><a href="#how">How it works</a><a href="#why">Why</a><a href="/docs">Docs</a><a href="/console">Console</a><a href={GH}>GitHub</a></div>
         <a className="btn solid" href="#start">Get started</a>
       </div></nav>

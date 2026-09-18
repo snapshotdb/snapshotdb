@@ -14,6 +14,7 @@ mod remote;
 mod pool;
 mod sqlite;
 mod sandbox;
+mod login;
 
 use std::{
     collections::HashMap,
@@ -30,6 +31,7 @@ const USAGE: &str = "usage:
   snapshotdb serve --bind <address:port> --public-host <hostname> [--db-bind <ip>]   deploy the database server
   snapshotdb clone <name> <connection-string>                  create a replica on the deployed server
   snapshotdb job <id>                                         wait for a previously submitted server job
+  snapshotdb login [--web <url>]                              sign in with GitHub in the browser
   snapshotdb preflight <postgres|mysql|mongodb> <url> [--schemas a,b] [--format json]   check a source; creates nothing (exit 2 on failure)
   snapshotdb import <postgres|mysql|sqlite|mongodb> <name> <datadir|file|--new>
   snapshotdb sync   <postgres|mysql|mongodb> <name> <url> [--schemas a,b] [--fix-replica-identity]   root kept in sync with production
@@ -93,6 +95,14 @@ impl Args {
 }
 
 fn main() {
+    if env::args().nth(1).as_deref() == Some("login") {
+        let args: Vec<String> = env::args().skip(2).collect();
+        if let Err(e) = login::run(&args) {
+            eprintln!("error: {e}");
+            process::exit(1);
+        }
+        return;
+    }
     let raw = match remote::route(env::args().skip(1).collect()) {
         Ok(Some(raw)) => raw,
         Ok(None) => return,

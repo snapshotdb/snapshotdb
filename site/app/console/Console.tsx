@@ -32,7 +32,7 @@ export default function Console({ user }: { user: SessionUser }) {
               <circle cx="23" cy="16" r="3" />
               <path d="M9 10v12M9 16h4a6 6 0 0 0 6-6" />
             </svg>
-            snapshot<em>db</em> <small>CONSOLE</small>
+            <span className="wm">snapshot<em>db</em></span> <small>CONSOLE</small>
           </div>
 
           <div className="side-org">
