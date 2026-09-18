@@ -107,7 +107,7 @@ pub fn claim(name: &str, snapshot: &Branch) -> R<Branch> {
         return Ok(claimed);
     }
     Err(format!(
-        "no ready branches in snapshot {}; refill with: anybranch prepare {} --from {} --count <N>",
+        "no ready branches in snapshot {}; refill with: snapshotdb prepare {} --from {} --count <N>",
         snapshot.name,
         snapshot.name,
         snapshot.parent().unwrap_or_default()

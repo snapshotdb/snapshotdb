@@ -124,12 +124,12 @@ export default function SiteFooter() {
             <circle cx="9" cy="7" r="3" /><circle cx="9" cy="25" r="3" /><circle cx="23" cy="16" r="3" />
             <path d="M9 10v12M9 16h4a6 6 0 0 0 6-6" />
           </svg>
-          <span className="w">any<em>branch</em></span>
+          <span className="w">snapshot<em>db</em></span>
         </div>
       </div>
 
       <div className="sf-bar">
-        <span className="c">anybranch © 2026</span>
+        <span className="c">snapshotdb © 2026</span>
         <span className="mid"><a href="/docs">Docs</a><a href={`${GH}/blob/main/LICENSE`}>Apache-2.0</a></span>
         <span className="right"><a href={GH}>GitHub</a></span>
       </div>

@@ -96,8 +96,8 @@ def main():
     args = parser.parse_args()
     prefix = "lat" + secrets.token_hex(3)
     client_home = args.report.parent / (prefix + "-client-must-not-exist")
-    env = dict(os.environ, ANYBRANCH_HOME=str(client_home))
-    env.pop("ANYBRANCH_INTERNAL", None)
+    env = dict(os.environ, SNAPSHOTDB_HOME=str(client_home))
+    env.pop("SNAPSHOTDB_INTERNAL", None)
     report = {"state": "running", "prefix": prefix, "engines": {}, "checks": [],
               "measurement": "CLI launch to new authenticated connection, read, committed write, read-back; client on same EC2 host", "fixture_rows": 1000}
     def save():

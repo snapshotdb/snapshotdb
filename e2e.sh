@@ -1,32 +1,32 @@
 #!/usr/bin/env bash
-# End-to-end check: a fake "production" made by anybranch itself, preflight, a synced
+# End-to-end check: a fake "production" made by snapshotdb itself, preflight, a synced
 # replica, schema changes, a poisoned transaction repaired, detached branches, suspend and
 # resume through the proxy, settings, and a clean teardown. Needs the engine binaries on
-# PATH; engines that are not installed are skipped. Uses a throwaway ANYBRANCH_HOME unless
+# PATH; engines that are not installed are skipped. Uses a throwaway SNAPSHOTDB_HOME unless
 # one is exported (e.g. a Btrfs mount on Linux).
 set -u
 cd "$(dirname "$0")"
 cargo build --release -q || exit 1
-B=$PWD/target/release/anybranch
-export ANYBRANCH_HOME=${ANYBRANCH_HOME:-$(mktemp -d /tmp/anybranch-e2e.XXXX)}
-mkdir -p "$ANYBRANCH_HOME" || exit 1
-if [ -n "$(find "$ANYBRANCH_HOME" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+B=$PWD/target/release/snapshotdb
+export SNAPSHOTDB_HOME=${SNAPSHOTDB_HOME:-$(mktemp -d /tmp/snapshotdb-e2e.XXXX)}
+mkdir -p "$SNAPSHOTDB_HOME" || exit 1
+if [ -n "$(find "$SNAPSHOTDB_HOME" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
   echo 'E2E storage must be empty; use a disposable directory' >&2
   exit 1
 fi
-chmod 700 "$ANYBRANCH_HOME" || exit 1
-export ANYBRANCH_IDLE_MINUTES=0
-export ANYBRANCH_TOKEN=$(openssl rand -hex 32)
+chmod 700 "$SNAPSHOTDB_HOME" || exit 1
+export SNAPSHOTDB_IDLE_MINUTES=0
+export SNAPSHOTDB_TOKEN=$(openssl rand -hex 32)
 api_port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
-export ANYBRANCH_SERVER="http://127.0.0.1:$api_port"
+export SNAPSHOTDB_SERVER="http://127.0.0.1:$api_port"
 start_server() {
-  $B serve --bind "127.0.0.1:$api_port" --public-host 127.0.0.1 >"$ANYBRANCH_HOME/server.log" 2>&1 &
+  $B serve --bind "127.0.0.1:$api_port" --public-host 127.0.0.1 >"$SNAPSHOTDB_HOME/server.log" 2>&1 &
   server_pid=$!
   for _ in $(seq 1 50); do
-    curl -fsS -H "Authorization: Bearer $ANYBRANCH_TOKEN" "$ANYBRANCH_SERVER/v1/health" >/dev/null 2>&1 && return 0
+    curl -fsS -H "Authorization: Bearer $SNAPSHOTDB_TOKEN" "$SNAPSHOTDB_SERVER/v1/health" >/dev/null 2>&1 && return 0
     sleep 0.1
   done
-  cat "$ANYBRANCH_HOME/server.log"; return 1
+  cat "$SNAPSHOTDB_HOME/server.log"; return 1
 }
 start_server || exit 1
 trap 'kill "$server_pid" 2>/dev/null; wait "$server_pid" 2>/dev/null' EXIT
@@ -44,7 +44,7 @@ if [ "${E2E_SKIP_POSTGRES:-0}" != 1 ] && command -v pg_ctl >/dev/null; then
   SRC=$($B url src); [ -n "$SRC" ] || exit 1
   echo "$SRC" | grep -qE '^postgresql://[^:]+:[0-9a-f]{32}@'; check "root has a generated password" "$?" 0
   check "TCP without the password is refused" "$(refused psql "postgresql://$USER@127.0.0.1:$(port src)/postgres" -Atc 'select 1')" refused
-  psql "$SRC" -Xq -c "CREATE ROLE anybranch_agent SUPERUSER; GRANT pg_read_server_files TO anybranch_agent; ALTER ROLE anybranch_agent SET search_path='pg_catalog';"
+  psql "$SRC" -Xq -c "CREATE ROLE snapshotdb_agent SUPERUSER; GRANT pg_read_server_files TO snapshotdb_agent; ALTER ROLE snapshotdb_agent SET search_path='pg_catalog';"
   psql "$SRC" -Xq -c "create table users(id serial primary key, name text); insert into users(name) select 'u'||g from generate_series(1,1000) g; create table nopk(x int);"
   $B preflight postgres "$SRC" >/dev/null 2>&1; check "preflight passes on a good source" "$?" 0
   $B preflight postgres "postgresql://nobody@127.0.0.1:1/x" >/dev/null 2>&1; check "preflight exits 2 on a bad source" "$?" 2
@@ -88,7 +88,7 @@ SQL
   psql "$SRC" -Atqc "insert into users(id, name) values (5000, 'remote')"
   waitfor "$B status prod | grep -c PAUSED" 1 "conflict pauses replication instead of retrying forever"
   $B create incomplete --from prod >/dev/null 2>&1; check "branching a paused replica is refused" "$?" 1
-  check "refused branch creates no data directory" "$([ ! -d "$ANYBRANCH_HOME/incomplete" ] && echo absent)" absent
+  check "refused branch creates no data directory" "$([ ! -d "$SNAPSHOTDB_HOME/incomplete" ] && echo absent)" absent
   $B repair prod | grep -q skipped; check "repair skips the poisoned transaction" "$?" 0
   psql "$SRC" -Atqc "insert into users(name) values ('after-repair')"
   waitfor "psql '$PROD' -Atc \"select count(*) from users where name = 'after-repair'\"" 1 "rows flow again after repair"
@@ -111,10 +111,10 @@ SQL
   freshness_blocker=$!
   waitfor "psql '$PROD' -Atc \"SELECT count(*) FROM pg_locks WHERE relation='users'::regclass AND mode='AccessExclusiveLock' AND granted\"" 1 "freshness timeout fixture blocks apply"
   psql "$SRC" -Xq -v ON_ERROR_STOP=1 -c "UPDATE users SET name='fresh-after-timeout' WHERE id=1"
-  printf '%s\n' '["create","fresh-timeout","--from","prod"]' | env ANYBRANCH_INTERNAL=1 ANYBRANCH_FRESHNESS_TIMEOUT_SECONDS=1 "$B" _worker >"$ANYBRANCH_HOME/freshness-timeout.log" 2>&1
+  printf '%s\n' '["create","fresh-timeout","--from","prod"]' | env SNAPSHOTDB_INTERNAL=1 SNAPSHOTDB_FRESHNESS_TIMEOUT_SECONDS=1 "$B" _worker >"$SNAPSHOTDB_HOME/freshness-timeout.log" 2>&1
   check "freshness timeout refuses a stale branch" "$?" 1
-  grep -q 'has not applied the source commit' "$ANYBRANCH_HOME/freshness-timeout.log"; check "refusal is a freshness timeout" "$?" 0
-  check "freshness timeout leaves no branch directory" "$([ ! -d "$ANYBRANCH_HOME/fresh-timeout" ] && echo absent)" absent
+  grep -q 'has not applied the source commit' "$SNAPSHOTDB_HOME/freshness-timeout.log"; check "refusal is a freshness timeout" "$?" 0
+  check "freshness timeout leaves no branch directory" "$([ ! -d "$SNAPSHOTDB_HOME/fresh-timeout" ] && echo absent)" absent
   check "freshness timeout does not restart parent" "$(psql "$PROD" -Atc 'select pg_postmaster_start_time()')" "$before_freshness_timeout"
   wait "$freshness_blocker"
   # branches
@@ -130,16 +130,16 @@ SQL
   check "agent inherited memberships removed" "$(psql "$DEV" -Atc "select count(*) from pg_auth_members where member=current_user::regrole")" 0
   check "agent cannot read server files" "$(refused psql "$DEV" -v ON_ERROR_STOP=1 -Atc "select pg_read_file('/etc/passwd')")" refused
   check "agent cannot execute host programs" "$(refused psql "$DEV" -v ON_ERROR_STOP=1 -Atc "COPY (SELECT 1) TO PROGRAM 'true'")" refused
-  canary="$ANYBRANCH_HOME/src/audit-canary"
+  canary="$SNAPSHOTDB_HOME/src/audit-canary"
   printf 'harmless-canary' > "$canary"; chmod 600 "$canary"
-  maintenance="postgresql:///postgres?host=$ANYBRANCH_HOME/dev/run&port=$(cat "$ANYBRANCH_HOME/dev/run/eport")&user=$USER"
+  maintenance="postgresql:///postgres?host=$SNAPSHOTDB_HOME/dev/run&port=$(cat "$SNAPSHOTDB_HOME/dev/run/eport")&user=$USER"
   check "sandbox hides sibling files even from maintenance superuser" "$(psql "$maintenance" -Atc "select pg_read_file('$canary',0,100,true) is null")" t
   check "sandbox hides host process environment" "$(psql "$maintenance" -Atc "select pg_read_file('/proc/1/environ',0,100,true) is null")" t
   rm "$canary"
   $B settings prod set branch_sql 'SELECT nonexistent_hook_for_security_test()' >/dev/null
   check "failed hook refuses branch creation" "$(refused $B create failed-hook --from prod --print-url)" refused
   check "failed hook exposes no URL" "$(refused $B url failed-hook)" refused
-  check "failed hook branch is removed" "$([ ! -d "$ANYBRANCH_HOME/failed-hook" ] && echo absent)" absent
+  check "failed hook branch is removed" "$([ ! -d "$SNAPSHOTDB_HOME/failed-hook" ] && echo absent)" absent
   $B settings prod set branch_sql "insert into users(name) values ('seeded')" >/dev/null
   check "branch has no subscription" "$(psql "$DEV" -Atc 'select count(*) from pg_subscription')" 0
   check "branch_sql hooks ran once on the new branch" "$(psql "$DEV" -Atc "select count(*) from users where name in ('seeded', 'fixtures')")" 2
@@ -152,16 +152,16 @@ SQL
   check "connecting to a suspended branch resumes it" "$(psql "$DEV" -Atc 'select 1')" 1
   check "branch running again" "$(st dev)" running
   $B create dev2 --from prod --format json | grep -q '"name":"dev2","engine":"postgres","parent":"prod"'; check "create --format json" "$?" 0
-  psql "$PROD" -Atqc 'ALTER SUBSCRIPTION anybranch_prod DISABLE'
+  psql "$PROD" -Atqc 'ALTER SUBSCRIPTION snapshotdb_prod DISABLE'
   $B reset dev >/dev/null 2>&1; check "reset refuses a paused parent" "$?" 1
   check "refused reset preserves existing branch writes" "$(psql "$DEV" -Atc "select count(*) from users where name = 'dev'")" 1
-  psql "$PROD" -Atqc 'ALTER SUBSCRIPTION anybranch_prod ENABLE'
+  psql "$PROD" -Atqc 'ALTER SUBSCRIPTION snapshotdb_prod ENABLE'
   $B lock prod; $B rm prod >/dev/null 2>&1; check "locked root refuses rm" "$?" 1
   $B unlock prod
   # Simulate an orderly reboot: stop the subscriber before its fake production source.
   # Stopping the publisher first while the subscriber stays up deliberately creates a
   # replication error (disable_on_error can pause it), which is a different repair test.
-  for b in prod dev dev2 src; do kill -TERM "$(cat "$ANYBRANCH_HOME/$b/run/proxypid")" 2>/dev/null; $B stop "$b" 2>/dev/null; done; sleep 1
+  for b in prod dev dev2 src; do kill -TERM "$(cat "$SNAPSHOTDB_HOME/$b/run/proxypid")" 2>/dev/null; $B stop "$b" 2>/dev/null; done; sleep 1
   check "after 'reboot' URLs are dead" "$(st dev)" stopped
   kill "$server_pid"; wait "$server_pid" 2>/dev/null
   start_server || exit 1
@@ -198,7 +198,7 @@ SQL
   check "no slot left on source" "$(psql "$SRC" -Atc 'select count(*) from pg_replication_slots')" 0
   check "no publication left on source" "$(psql "$SRC" -Atc 'select count(*) from pg_publication')" 0
   check "no event trigger left on source" "$(psql "$SRC" -Atc 'select count(*) from pg_event_trigger')" 0
-  check "no anybranch schema left on source" "$(psql "$SRC" -Atc "select count(*) from pg_namespace where nspname like 'anybranch%'")" 0
+  check "no snapshotdb schema left on source" "$(psql "$SRC" -Atc "select count(*) from pg_namespace where nspname like 'snapshotdb%'")" 0
   $B rm src
 fi
 
@@ -226,10 +226,10 @@ if [ "${E2E_POSTGRES_ONLY:-0}" != 1 ] && command -v mysqld >/dev/null; then
   waitfor "mu '$MR' 'select count(*) from app.t where v = 5'" 1 "rows flow again after repair"
   $B create mdev --from mrep >/dev/null || exit 1; MD=$($B url mdev)
   check "branch has its own password" "$([ "$(pwof "$MD")" != "$(pwof "$MR")" ] && echo distinct)" distinct
-  check "MySQL branch uses restricted agent account" "$(mu "$MD" 'SELECT CURRENT_USER()')" anybranch_agent@localhost
+  check "MySQL branch uses restricted agent account" "$(mu "$MD" 'SELECT CURRENT_USER()')" snapshotdb_agent@localhost
   check "MySQL agent cannot read host files" "$(mu "$MD" "SELECT LOAD_FILE('/etc/passwd') IS NULL")" 1
   check "MySQL agent cannot create administrators" "$(refused mu "$MD" "CREATE USER 'should_not_exist'@'localhost'")" refused
-  check "branch has no replication channel" "$(MYSQL_PWD=$(cat "$ANYBRANCH_HOME/mdev/password") mysql --no-defaults -u root --socket="$ANYBRANCH_HOME/mdev/run/sock" -N -Be 'select count(*) from performance_schema.replication_connection_configuration')" 0
+  check "branch has no replication channel" "$(MYSQL_PWD=$(cat "$SNAPSHOTDB_HOME/mdev/password") mysql --no-defaults -u root --socket="$SNAPSHOTDB_HOME/mdev/run/sock" -N -Be 'select count(*) from performance_schema.replication_connection_configuration')" 0
   mu "$MS" "insert into app.t(v) values (6)"
   waitfor "mu '$MR' 'select count(*) from app.t where v = 6'" 1 "replica keeps streaming after branch"
   check "branch isolated from later production writes" "$(mu "$MD" 'select count(*) from app.t where v = 6')" 0
@@ -241,14 +241,14 @@ if [ "${E2E_POSTGRES_ONLY:-0}" != 1 ] && command -v mongod >/dev/null && command
   echo "mongodb"
   mq() { mongosh --quiet "$1" --eval "$2"; }
   $B import mongodb mg --new >/dev/null; U=$($B url mg)
-  echo "$U" | grep -qE '^mongodb://anybranch:[0-9a-f]{32}@'; check "root has generated credentials" "$?" 0
+  echo "$U" | grep -qE '^mongodb://snapshotdb:[0-9a-f]{32}@'; check "root has generated credentials" "$?" 0
   check "unauthenticated access is refused" "$(refused mongosh --quiet "mongodb://127.0.0.1:$(port mg)/?directConnection=true" --eval 'db.getSiblingDB("app").t.countDocuments()')" refused
   mq "$U" 'db.getSiblingDB("app").t.insertMany([{_id:1},{_id:2},{_id:3}])' >/dev/null
   check "root is a writable single-node replica set" "$(mq "$U" 'print(db.hello().isWritablePrimary)')" true
   $B create mg2 --from mg >/dev/null || exit 1; U2=$($B url mg2)
   check "branch has its own password" "$([ "$(pwof "$U2")" != "$(pwof "$U")" ] && echo distinct)" distinct
   check "MongoDB agent cannot create administrators" "$(refused mq "$U2" 'db.getSiblingDB("admin").createUser({user:"should_not_exist",pwd:"test-only",roles:["root"]})')" refused
-  check "clone reconfigured onto its own engine port" "$(mq "$U2" 'print(db.hello().me)')" "127.0.0.1:$(cat "$ANYBRANCH_HOME/mg2/run/eport")"
+  check "clone reconfigured onto its own engine port" "$(mq "$U2" 'print(db.hello().me)')" "127.0.0.1:$(cat "$SNAPSHOTDB_HOME/mg2/run/eport")"
   mq "$U2" 'db.getSiblingDB("app").t.insertOne({_id:4})' >/dev/null
   check "branch has its own writes" "$(mq "$U2" 'print(db.getSiblingDB("app").t.countDocuments())')" 4
   check "parent unchanged" "$(mq "$U" 'print(db.getSiblingDB("app").t.countDocuments())')" 3
@@ -268,7 +268,7 @@ if [ "${E2E_POSTGRES_ONLY:-0}" != 1 ] && command -v mongod >/dev/null && command
     waitfor "mq '$RU' 'print(db.getSiblingDB(\"app\").audit_fail.countDocuments())'" 1 "fault fixture replicated"
     mq "$RU" 'db.getSiblingDB("app").audit_fail.createIndex({v:1},{unique:true})' >/dev/null
     mq "$U" 'db.getSiblingDB("app").audit_fail.insertOne({_id:2,v:1})' >/dev/null
-    waitfor "test -f '$ANYBRANCH_HOME/mrep/run/tail.failed' && echo paused" paused "failed event pauses MongoDB replication"
+    waitfor "test -f '$SNAPSHOTDB_HOME/mrep/run/tail.failed' && echo paused" paused "failed event pauses MongoDB replication"
     check "failed MongoDB replica refuses branches" "$(refused $B create mongo-paused --from mrep)" refused
     mq "$RU" 'db.getSiblingDB("app").audit_fail.dropIndex("v_1")' >/dev/null
     $B repair mrep >/dev/null
@@ -284,8 +284,8 @@ if [ "${E2E_POSTGRES_ONLY:-0}" != 1 ] && command -v mongod >/dev/null && command
   $B rm mg2; $B rm mg
 fi
 
-check "no proxies left" "$(pgrep -f 'anybranch _proxy (src|prod|dev|dev2|msrc|mrep|mdev|mg|mg2)$' | wc -l | tr -d ' ')" 0
+check "no proxies left" "$(pgrep -f 'snapshotdb _proxy (src|prod|dev|dev2|msrc|mrep|mdev|mg|mg2)$' | wc -l | tr -d ' ')" 0
 kill "$server_pid"; wait "$server_pid" 2>/dev/null
 trap - EXIT
-rm -rf "$ANYBRANCH_HOME"
+rm -rf "$SNAPSHOTDB_HOME"
 [ $fail = 0 ] && echo "all passed" || { echo "FAILURES"; exit 1; }

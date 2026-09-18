@@ -15,13 +15,13 @@ import urllib.request
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--env-file', default='/etc/anybranch-tb.env')
-    parser.add_argument('--service', default='anybranch-tb')
+    parser.add_argument('--env-file', default='/etc/snapshotdb-tb.env')
+    parser.add_argument('--service', default='snapshotdb-tb')
     parser.add_argument('--api', default='http://127.0.0.1:7433')
-    parser.add_argument('--benchmark-report', default='/var/lib/anybranch-benchmark/report.json')
-    parser.add_argument('--output', default='/var/lib/anybranch-benchmark/post-test-report.json')
-    parser.add_argument('--repo', default='/opt/anybranch-src')
-    parser.add_argument('--binary', default='/usr/local/bin/anybranch')
+    parser.add_argument('--benchmark-report', default='/var/lib/snapshotdb-benchmark/report.json')
+    parser.add_argument('--output', default='/var/lib/snapshotdb-benchmark/post-test-report.json')
+    parser.add_argument('--repo', default='/opt/snapshotdb-src')
+    parser.add_argument('--binary', default='/usr/local/bin/snapshotdb')
     parser.add_argument('--minimum-bytes', type=int, default=10**12)
     parser.add_argument('--skip-engine-suite', action='store_true')
     args = parser.parse_args()
@@ -32,18 +32,18 @@ def main():
               'started_at': datetime.datetime.now(datetime.timezone.utc).isoformat()}
     started = time.monotonic()
     env = os.environ.copy()
-    env.pop('ANYBRANCH_INTERNAL', None)
-    env['PATH'] = '/home/anybranch/.cargo/bin:/usr/lib/postgresql/16/bin:/usr/local/bin:/usr/sbin:/usr/bin:/bin'
+    env.pop('SNAPSHOTDB_INTERNAL', None)
+    env['PATH'] = '/home/snapshotdb/.cargo/bin:/usr/lib/postgresql/16/bin:/usr/local/bin:/usr/sbin:/usr/bin:/bin'
     for line in Path(args.env_file).read_text().splitlines():
         if line and not line.startswith('#'):
             key, value = line.split('=', 1)
             env[key] = shlex.split(value)[0]
-    env['PATH'] = '/home/anybranch/.cargo/bin:/usr/lib/postgresql/16/bin:/usr/local/bin:/usr/sbin:/usr/bin:/bin'
-    env['ANYBRANCH_SERVER'] = args.api
-    client_home = Path('/srv/anybranch-data/tmp') / ('post-client-' + str(os.getpid()))
-    env['ANYBRANCH_HOME'] = str(client_home)
+    env['PATH'] = '/home/snapshotdb/.cargo/bin:/usr/lib/postgresql/16/bin:/usr/local/bin:/usr/sbin:/usr/bin:/bin'
+    env['SNAPSHOTDB_SERVER'] = args.api
+    client_home = Path('/srv/snapshotdb-data/tmp') / ('post-client-' + str(os.getpid()))
+    env['SNAPSHOTDB_HOME'] = str(client_home)
     env['PGCONNECT_TIMEOUT'] = '15'
-    env['TMPDIR'] = '/srv/anybranch-data/tmp'
+    env['TMPDIR'] = '/srv/snapshotdb-data/tmp'
     log = output.with_suffix('.log').open('w')
     created = []
     urls = {}
@@ -64,7 +64,7 @@ def main():
         save()
 
     def run(command, sql=None, user=True, timeout=600, require=True, custom_env=None):
-        argv = ['runuser', '-u', 'anybranch', '--', *command] if user else command
+        argv = ['runuser', '-u', 'snapshotdb', '--', *command] if user else command
         try:
             result = subprocess.run(argv, input=sql, text=True, capture_output=True,
                                     env=custom_env or env, timeout=timeout, cwd=args.repo)
@@ -91,7 +91,7 @@ def main():
         raise RuntimeError('timed out: ' + label)
 
     def ready():
-        request = urllib.request.Request(args.api + '/v1/health', headers={'Authorization': 'Bearer ' + env['ANYBRANCH_TOKEN']})
+        request = urllib.request.Request(args.api + '/v1/health', headers={'Authorization': 'Bearer ' + env['SNAPSHOTDB_TOKEN']})
         try:
             with urllib.request.urlopen(request, timeout=3) as response:
                 return response.status == 200
@@ -143,11 +143,11 @@ def main():
         ab('lock', b)
         check('locked scratch branch refuses deletion', ab('rm', b, require=False).returncode != 0)
         ab('unlock', b)
-        sql('replica', 'ALTER SUBSCRIPTION anybranch_replica DISABLE;')
+        sql('replica', 'ALTER SUBSCRIPTION snapshotdb_replica DISABLE;')
         subscription_paused = True
         check('reset refuses a paused parent', ab('reset', a, require=False).returncode != 0)
         check('refused reset preserves branch changes', sql(a, f'SELECT value FROM {table} WHERE id=1;') == 'branch-only')
-        sql('replica', 'ALTER SUBSCRIPTION anybranch_replica ENABLE;')
+        sql('replica', 'ALTER SUBSCRIPTION snapshotdb_replica ENABLE;')
         subscription_paused = False
         sql('source', f"UPDATE {table} SET value='before-restart' WHERE id=1;")
         wait('source changes reach retained replica', lambda: sql('replica', f'SELECT value FROM {table} WHERE id=1;') == 'before-restart')
@@ -168,7 +168,7 @@ def main():
     finally:
         if subscription_paused:
             try:
-                sql('replica', 'ALTER SUBSCRIPTION anybranch_replica ENABLE;')
+                sql('replica', 'ALTER SUBSCRIPTION snapshotdb_replica ENABLE;')
             except Exception:
                 report['failures'].append('could not re-enable retained replication')
         for name in reversed(created):
@@ -186,12 +186,12 @@ def main():
 
     if not args.skip_engine_suite:
         regression_env = env.copy()
-        for key in ('ANYBRANCH_HOME', 'ANYBRANCH_SERVER', 'ANYBRANCH_TOKEN'):
+        for key in ('SNAPSHOTDB_HOME', 'SNAPSHOTDB_SERVER', 'SNAPSHOTDB_TOKEN'):
             regression_env.pop(key, None)
         commands = [
             ('rust', ['cargo', 'test', '--locked', '-j', '2']),
             ('python', ['python3', '-m', 'unittest', 'discover', '-s', 'scripts', '-p', 'test_*.py']),
-            ('engines', ['bash', '-c', 'set -e; for p in pg_ctl psql mysqld mysql mongod mongosh mongodump mongorestore sqlite3; do command -v "$p" >/dev/null; done; export TMPDIR=/srv/anybranch-data/tmp; ANYBRANCH_HOME=$(mktemp -d "$TMPDIR/post-e2e.XXXXXX") ./e2e.sh'])]
+            ('engines', ['bash', '-c', 'set -e; for p in pg_ctl psql mysqld mysql mongod mongosh mongodump mongorestore sqlite3; do command -v "$p" >/dev/null; done; export TMPDIR=/srv/snapshotdb-data/tmp; SNAPSHOTDB_HOME=$(mktemp -d "$TMPDIR/post-e2e.XXXXXX") ./e2e.sh'])]
         for group, command in commands:
             report['current_group'] = group
             save()

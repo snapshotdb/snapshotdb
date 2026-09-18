@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Two-phase prepared branch restart/credential test. State contains private URLs.
 
-Run setup; restart the disposable Anybranch server; run verify.
+Run setup; restart the disposable SnapshotDB server; run verify.
 """
 import argparse
 import json
@@ -22,8 +22,8 @@ def main():
     p.add_argument("--report", type=Path, required=True)
     p.add_argument("--idle-seconds", type=int, default=0)
     args = p.parse_args()
-    env = dict(os.environ, ANYBRANCH_HOME=str(args.state.parent / "lifecycle-client-must-not-exist"))
-    env.pop("ANYBRANCH_INTERNAL", None)
+    env = dict(os.environ, SNAPSHOTDB_HOME=str(args.state.parent / "lifecycle-client-must-not-exist"))
+    env.pop("SNAPSHOTDB_INTERNAL", None)
     def cli(*command):
         result = subprocess.run([args.binary, *command], env=env, capture_output=True, text=True, timeout=300)
         if result.returncode:
@@ -90,7 +90,7 @@ def main():
             cli("rm", item["agent"])
             cli("rm", item["snapshot"])
             cli("rm", item["source"])
-        check(not Path(env["ANYBRANCH_HOME"]).exists(), "no local client database files")
+        check(not Path(env["SNAPSHOTDB_HOME"]).exists(), "no local client database files")
         report["state"] = "passed"
     except Exception as exc:
         report["state"] = "failed"

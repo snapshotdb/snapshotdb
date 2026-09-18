@@ -9,6 +9,6 @@ const paths = [
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const base = "https://anybranch.dev";
+  const base = "https://www.snapshotdb.io";
   return paths.map((p) => ({ url: base + p, changeFrequency: "weekly", priority: p === "" ? 1 : 0.6 }));
 }

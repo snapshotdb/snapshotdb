@@ -8,7 +8,7 @@
     "branch_ddl": true,
     "cleanup": true
   },
-  "anybranch": {
+  "snapshotdb": {
     "committed_write": true,
     "rollback": true,
     "identity_sequence": true,

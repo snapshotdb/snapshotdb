@@ -77,7 +77,7 @@ See the [prepared 1 TB evidence](benchmarks/2026-09-13-prepared-1tb.json),
 [fresh server-local evidence](benchmarks/2026-09-13-fresh-1tb.json),
 [fresh laptop evidence](benchmarks/2026-09-13-fresh-1tb-laptop.json), and
 [Ardent comparison status](ardent-comparison.md). The live retained service uses
-`/usr/local/bin/anybranch-fair`; the original executable is preserved.
+`/usr/local/bin/snapshotdb-fair`; the original executable is preserved.
 
 See [raw timing and correctness evidence](benchmarks/2026-09-13-latency.json),
 [usage and limitations](prepared-branches.md), [server-local runner](../scripts/latency.py),

@@ -18,15 +18,15 @@ It is sized for functional tests and a 1 GB dataset, not the 1 TB benchmark.
 | OS | Ubuntu 24.04, x86_64 |
 | Root disk | 16 GiB, encrypted gp3 |
 | Database disk | 32 GiB, encrypted gp3, Btrfs |
-| Database storage | `/srv/anybranch-data/server`, linked from `/srv/anybranch` |
-| Test storage | `/srv/anybranch-data/bench` and `/srv/anybranch-data/tmp` |
+| Database storage | `/srv/snapshotdb-data/server`, linked from `/srv/snapshotdb` |
+| Test storage | `/srv/snapshotdb-data/bench` and `/srv/snapshotdb-data/tmp` |
 | Control API | Server loopback port `7432` |
 | SSH security group | `sg-0e8eeac4e88efa1e3`, port 22 from the operator's launch-time public IP only |
 
 The API and database proxies bind loopback. Access uses SSH tunnels; no database or API
-ports are exposed to the internet. The source checkout and build live in `/opt/anybranch-src`.
+ports are exposed to the internet. The source checkout and build live in `/opt/snapshotdb-src`.
 PostgreSQL 16, MySQL 8, MongoDB 8, and SQLite are installed. Their distribution services are
-disabled so Anybranch manages its own instances. The `anybranch` systemd service starts at boot.
+disabled so SnapshotDB manages its own instances. The `snapshotdb` systemd service starts at boot.
 
 The later Ardent comparison has a separate TLS source endpoint on port 15450,
 restricted to Ardent's reported egress IP and requiring client certificate authentication.
@@ -35,20 +35,20 @@ See [comparison configuration and status](ardent-comparison.md).
 Local connection files are in the ignored, private `.local/aws-mumbai/` directory. They
 include `deployment.json`, an SSH key, SSH configuration, and any client environment files
 created during setup. Do not commit these files. The server API token lives in
-`/etc/anybranch.env`, readable by root and the `anybranch` service group.
+`/etc/snapshotdb.env`, readable by root and the `snapshotdb` service group.
 
 ## Connect and inspect
 
 The initial setup leaves `demo-source`, `demo-replica`, and `demo-branch` on the server,
-with a 1,000-row `public.anybranch_demo` table. The laptop-to-server test changes row 1
+with a 1,000-row `public.snapshotdb_demo` table. The laptop-to-server test changes row 1
 only in the branch and rows 2–3 only in the source/replica.
 
 While the setup's SSH tunnels are running, use the existing demo from this checkout:
 
 ```sh
 source .local/aws-mumbai/client.env
-./target/release/anybranch list
-psql "$DEMO_DATABASE_URL" -c 'SELECT * FROM public.anybranch_demo WHERE id <= 3'
+./target/release/snapshotdb list
+psql "$DEMO_DATABASE_URL" -c 'SELECT * FROM public.snapshotdb_demo WHERE id <= 3'
 ```
 
 The private `client.env` contains the API token and branch connection URL. The initial
@@ -58,25 +58,25 @@ process IDs are recorded in `.local/aws-mumbai/tunnel-pids.json`.
 From this checkout:
 
 ```sh
-ssh -F .local/aws-mumbai/ssh-config anybranch-mumbai
+ssh -F .local/aws-mumbai/ssh-config snapshotdb-mumbai
 ```
 
 On the server:
 
 ```sh
-sudo systemctl status anybranch
-sudo journalctl -u anybranch -n 50
-df -h /srv/anybranch-data
-sudo -u anybranch bash -c 'set -a; source /etc/anybranch.env; anybranch list'
+sudo systemctl status snapshotdb
+sudo journalctl -u snapshotdb -n 50
+df -h /srv/snapshotdb-data
+sudo -u snapshotdb bash -c 'set -a; source /etc/snapshotdb.env; snapshotdb list'
 ```
 
 If the setup tunnels have exited, forward the API and existing demo branch from another terminal:
 
 ```sh
-ssh -F .local/aws-mumbai/ssh-config -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -N -L 17432:127.0.0.1:7432 -L 15433:127.0.0.1:44841 anybranch-mumbai
+ssh -F .local/aws-mumbai/ssh-config -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -N -L 17432:127.0.0.1:7432 -L 15433:127.0.0.1:44841 snapshotdb-mumbai
 ```
 
-The laptop CLI then uses `ANYBRANCH_SERVER=http://127.0.0.1:17432` and the server token.
+The laptop CLI then uses `SNAPSHOTDB_SERVER=http://127.0.0.1:17432` and the server token.
 Database URLs contain the server's loopback address. Forward each database port separately
 before connecting from the laptop. This preserves the client/server architecture: database
 files and engines remain on EC2.
@@ -94,8 +94,8 @@ to create. These are single-run observations on this small host, not a capacity 
 The test verified row counts, live updates, schema changes, isolation, cold resume,
 and replication-slot cleanup. Test databases were removed after completion.
 
-The report remains at `/srv/anybranch-data/bench/scale-1ztby0rd/report.json` (read as
-`anybranch` or with `sudo`), with a local copy at `.local/aws-mumbai/benchmark-report.json`.
+The report remains at `/srv/snapshotdb-data/bench/scale-1ztby0rd/report.json` (read as
+`snapshotdb` or with `sudo`), with a local copy at `.local/aws-mumbai/benchmark-report.json`.
 Its filesystem-wide free-space delta includes background allocation/reclamation and
 must not be interpreted as branch-exclusive storage usage. Copy-on-write support was
 verified separately with a mandatory reflink copy.
@@ -110,7 +110,7 @@ run; it needs a larger data volume and a suitably sized host.
 ## Repeat tests
 
 ```sh
-sudo -u anybranch bash /tmp/ec2-test.sh
+sudo -u snapshotdb bash /tmp/ec2-test.sh
 ```
 
 The reproducible scripts are [bootstrap](../deploy/ec2-bootstrap.sh),

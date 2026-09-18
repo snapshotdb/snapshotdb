@@ -30,8 +30,8 @@ def main():
     p.add_argument('--minimum-bytes',type=int,default=10**12)
     p.add_argument('--skip-padding-check',action='store_true',help='Use for fixtures without the original 1 TB padding table')
     args=p.parse_args()
-    env=dict(os.environ,ANYBRANCH_HOME=str(args.report.parent/'fresh-client-must-not-exist'))
-    env.pop('ANYBRANCH_INTERNAL',None)
+    env=dict(os.environ,SNAPSHOTDB_HOME=str(args.report.parent/'fresh-client-must-not-exist'))
+    env.pop('SNAPSHOTDB_INTERNAL',None)
     prefix='fresh'+secrets.token_hex(4)
     report={'state':'running','passed':False,'prefix':prefix,'trials':[], 'checks':[],
             'started_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
@@ -109,7 +109,7 @@ def main():
         values=sorted(t['read_write_ms'] for t in report['trials'])
         import math
         report['summary']={'n':len(values),'p50_ms':statistics.median(values),'p95_ms':values[math.ceil(len(values)*.95)-1],'max_ms':max(values),'all_under_6s':all(v<6000 for v in values),'all_under_1s':all(v<1000 for v in values)}
-        check(not Path(env['ANYBRANCH_HOME']).exists(),'client created no database storage')
+        check(not Path(env['SNAPSHOTDB_HOME']).exists(),'client created no database storage')
         report.update(state='passed',passed=True)
     except Exception as exc:
         report.update(state='failed',error=str(exc));raise

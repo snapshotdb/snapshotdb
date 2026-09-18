@@ -206,11 +206,11 @@ function modal(node){ const scrim=el('div',{class:'scrim',onclick:e=>{if(e.targe
 function foot(...b){return el('div',{class:'foot'},...b);}
 
 function openConn(){
-  const base=el('input',{value:cfg.base,placeholder:'https://anybranch.example.com  (blank = same origin)'});
-  const tok=el('input',{value:cfg.token,placeholder:'server access token (ANYBRANCH_TOKEN)',type:'password'});
+  const base=el('input',{value:cfg.base,placeholder:'https://snapshotdb.example.com  (blank = same origin)'});
+  const tok=el('input',{value:cfg.token,placeholder:'server access token (SNAPSHOTDB_TOKEN)',type:'password'});
   const m=modal(el('div',{class:'modal'},
     el('h3',{},'Connection'),
-    el('div',{class:'sub'},'The console calls the anybranch server. Same-origin needs no address; a remote address needs the server to allow this origin.'),
+    el('div',{class:'sub'},'The console calls the snapshotdb server. Same-origin needs no address; a remote address needs the server to allow this origin.'),
     el('div',{class:'body'},el('label',{},'Server address'),base,
       el('label',{},'Access token'),tok,
       el('div',{class:'hint'},'Stored only in this browser (localStorage). Never sent anywhere but your server.')),

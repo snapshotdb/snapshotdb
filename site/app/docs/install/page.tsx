@@ -1,4 +1,4 @@
-export const metadata = { title: "Install — anybranch docs" };
+export const metadata = { title: "Install — snapshotdb docs" };
 
 export default function Page() {
   return (
@@ -26,11 +26,11 @@ export default function Page() {
       </table>
 
       <h2>Filesystem</h2>
-      <p>Copy-on-write cloning is <code>cp -c</code> (clonefile) on macOS/APFS and <code>cp --reflink=always</code> on Linux (Btrfs, XFS with reflink, or bcachefs). On a filesystem without reflink support, branches fall back to full byte copies, so branch storage is no longer free. Point <code>ANYBRANCH_HOME</code> at a directory on a reflink-capable volume.</p>
+      <p>Copy-on-write cloning is <code>cp -c</code> (clonefile) on macOS/APFS and <code>cp --reflink=always</code> on Linux (Btrfs, XFS with reflink, or bcachefs). On a filesystem without reflink support, branches fall back to full byte copies, so branch storage is no longer free. Point <code>SNAPSHOTDB_HOME</code> at a directory on a reflink-capable volume.</p>
 
       <h2>Optional: restore branches at login</h2>
-      <pre className="code"><code><span className="p">$</span> anybranch service install</code></pre>
-      <p>Installs a launchd agent (macOS) or a systemd user unit (Linux) that runs <code>anybranch up</code> after a reboot, restoring every branch’s proxy and restarting synced roots.</p>
+      <pre className="code"><code><span className="p">$</span> snapshotdb service install</code></pre>
+      <p>Installs a launchd agent (macOS) or a systemd user unit (Linux) that runs <code>snapshotdb up</code> after a reboot, restoring every branch’s proxy and restarting synced roots.</p>
 
       <div className="np"><a href="/docs/quickstart">← Quickstart</a><a className="n" href="/docs/server">Server deployment →</a></div>
     </>

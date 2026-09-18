@@ -31,7 +31,7 @@ updates, schema changes, resume, and cleanup passed. These are single-run measur
 **This earlier run did not test 1 TB.**
 
 The first laptop test attempt stopped because the test script used a hyphenated
-subscription name instead of Anybranch's underscore-normalized name. Its test databases
+subscription name instead of SnapshotDB's underscore-normalized name. Its test databases
 were cleaned up; after correcting the script, the complete fresh run passed. No product
 code changes were needed during this test run.
 
@@ -39,4 +39,4 @@ The service remains active. Temporary test databases and engine-suite directorie
 removed; reports and job metadata remain. Private logs and detailed JSON reports are in
 `.local/aws-mumbai/`: `full-e2e-latest.log`, `fresh-e2e-report.json`, and
 `benchmark-latest-report.json`. Logs may contain synthetic test credentials and should
-not be published. The remote scale report is `/srv/anybranch-data/bench/scale-i37w2vuo/report.json`.
+not be published. The remote scale report is `/srv/snapshotdb-data/bench/scale-i37w2vuo/report.json`.

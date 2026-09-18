@@ -50,7 +50,7 @@ pub fn validate_name(name: &str) -> R<()> {
 fn normalize(mut args: Vec<String>) -> R<Vec<String>> {
     if args.first().map(String::as_str) == Some("clone") {
         if args.len() != 3 {
-            return Err("usage: anybranch clone <name> <connection-string>".into());
+            return Err("usage: snapshotdb clone <name> <connection-string>".into());
         }
         let engine = match args[2].split_once("://").map(|x| x.0) {
             Some("postgres" | "postgresql") => "postgres",
@@ -105,12 +105,12 @@ fn normalize(mut args: Vec<String>) -> R<Vec<String>> {
 /// Some means enter the existing engine dispatcher; None means client/server work is done.
 pub fn route(raw: Vec<String>) -> R<Option<Vec<String>>> {
     let first = raw.first().map(String::as_str).unwrap_or("");
-    if first == "_worker" && env::var("ANYBRANCH_INTERNAL").as_deref() == Ok("1") {
+    if first == "_worker" && env::var("SNAPSHOTDB_INTERNAL").as_deref() == Ok("1") {
         let args: Vec<String> = serde_json::from_reader(std::io::stdin().take(MAX_REQUEST))
             .map_err(|e| e.to_string())?;
         return Ok(Some(normalize(args)?));
     }
-    if first == "_proxy" && env::var("ANYBRANCH_INTERNAL").as_deref() == Ok("1") {
+    if first == "_proxy" && env::var("SNAPSHOTDB_INTERNAL").as_deref() == Ok("1") {
         return Ok(Some(raw));
     }
     if raw.is_empty() || matches!(first, "--help" | "--version") {
@@ -144,7 +144,7 @@ fn run_job(dir: &Path, id: &str, args: Vec<String>) -> R<()> {
     save_job(dir, id, &json!({"id": id, "state": "running"}))?;
     let mut child = Command::new(env::current_exe().map_err(|e| e.to_string())?)
         .arg("_worker")
-        .env("ANYBRANCH_INTERNAL", "1")
+        .env("SNAPSHOTDB_INTERNAL", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -167,11 +167,11 @@ fn run_job(dir: &Path, id: &str, args: Vec<String>) -> R<()> {
 }
 
 fn token() -> R<String> {
-    let token = env::var("ANYBRANCH_TOKEN")
-        .map_err(|_| "set ANYBRANCH_TOKEN to the server access token")?;
+    let token = env::var("SNAPSHOTDB_TOKEN")
+        .map_err(|_| "set SNAPSHOTDB_TOKEN to the server access token")?;
     if token.len() < 32 || !token.bytes().all(|b| b.is_ascii_graphic()) {
         return Err(
-            "ANYBRANCH_TOKEN must contain at least 32 printable non-space ASCII characters".into(),
+            "SNAPSHOTDB_TOKEN must contain at least 32 printable non-space ASCII characters".into(),
         );
     }
     Ok(token)
@@ -208,9 +208,9 @@ fn serve(args: &Args) -> R<()> {
     db_bind
         .parse::<std::net::Ipv4Addr>()
         .map_err(|_| "--db-bind must be an IPv4 address")?;
-    env::set_var("ANYBRANCH_PUBLIC_HOST", public);
-    env::set_var("ANYBRANCH_DB_BIND", db_bind);
-    env::set_var("ANYBRANCH_INTERNAL", "1");
+    env::set_var("SNAPSHOTDB_PUBLIC_HOST", public);
+    env::set_var("SNAPSHOTDB_DB_BIND", db_bind);
+    env::set_var("SNAPSHOTDB_INTERNAL", "1");
     fs::create_dir_all(crate::home()).map_err(|e| e.to_string())?;
     fs::set_permissions(crate::home(), fs::Permissions::from_mode(0o700))
         .map_err(|e| e.to_string())?;
@@ -221,7 +221,7 @@ fn serve(args: &Args) -> R<()> {
         .open(crate::home().join(".server.lock"))
         .map_err(|e| e.to_string())?;
     fs2::FileExt::try_lock_exclusive(&storage_lock)
-        .map_err(|_| "another Anybranch server is using this data directory")?;
+        .map_err(|_| "another SnapshotDB server is using this data directory")?;
     let startup_lock = worker_lock(true)?;
     let jobs = crate::home().join(".jobs");
     fs::create_dir_all(&jobs).map_err(|e| e.to_string())?;
@@ -265,7 +265,7 @@ fn serve(args: &Args) -> R<()> {
     crate::up()?;
     drop(startup_lock);
     eprintln!(
-        "Anybranch server listening on {bind}; database files: {}",
+        "SnapshotDB server listening on {bind}; database files: {}",
         crate::home().display()
     );
     while !stopping.load(std::sync::atomic::Ordering::Relaxed) {
@@ -350,19 +350,19 @@ fn valid_job_id(id: &str) -> bool {
 }
 
 fn client(mut args: Vec<String>) -> R<()> {
-    let server = env::var("ANYBRANCH_SERVER").map_err(|_|
-        "no server configured: set ANYBRANCH_SERVER and ANYBRANCH_TOKEN. Database copies run only on a deployed Anybranch server")?;
+    let server = env::var("SNAPSHOTDB_SERVER").map_err(|_|
+        "no server configured: set SNAPSHOTDB_SERVER and SNAPSHOTDB_TOKEN. Database copies run only on a deployed SnapshotDB server")?;
     let server = server.trim_end_matches('/');
-    let uri: ureq::http::Uri = server.parse().map_err(|_| "invalid ANYBRANCH_SERVER URL")?;
+    let uri: ureq::http::Uri = server.parse().map_err(|_| "invalid SNAPSHOTDB_SERVER URL")?;
     let loopback = matches!(uri.host(), Some("127.0.0.1" | "localhost" | "[::1]"));
     if uri.scheme_str() != Some("https") && !(uri.scheme_str() == Some("http") && loopback) {
-        return Err("ANYBRANCH_SERVER must use HTTPS (HTTP is allowed only on loopback, e.g. an SSH tunnel)".into());
+        return Err("SNAPSHOTDB_SERVER must use HTTPS (HTTP is allowed only on loopback, e.g. an SSH tunnel)".into());
     }
     if uri.authority().is_none()
         || uri.authority().unwrap().as_str().contains('@')
         || uri.query().is_some()
     {
-        return Err("invalid ANYBRANCH_SERVER URL".into());
+        return Err("invalid SNAPSHOTDB_SERVER URL".into());
     }
     let token = token()?;
     let agent: ureq::Agent = ureq::Agent::config_builder()
@@ -385,7 +385,7 @@ fn client(mut args: Vec<String>) -> R<()> {
     };
     let id = if args.first().map(String::as_str) == Some("job") {
         if args.len() != 2 || !valid_job_id(&args[1]) {
-            return Err("usage: anybranch job <id>".into());
+            return Err("usage: snapshotdb job <id>".into());
         }
         args[1].clone()
     } else {
@@ -410,7 +410,7 @@ fn client(mut args: Vec<String>) -> R<()> {
     let waiting_since = std::time::Instant::now();
     loop {
         let value = get(&format!("/v1/jobs/{id}"))
-            .map_err(|e| format!("{e}; resume with: anybranch job {id}"))?;
+            .map_err(|e| format!("{e}; resume with: snapshotdb job {id}"))?;
         if value["state"] == "done" {
             print!("{}", value["stdout"].as_str().unwrap_or(""));
             eprint!("{}", value["stderr"].as_str().unwrap_or(""));

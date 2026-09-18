@@ -12,7 +12,7 @@ export type SessionUser = {
 };
 
 function secret(): string {
-  return process.env.AUTH_SECRET || "anybranch-dev-insecure-secret-change-in-production";
+  return process.env.AUTH_SECRET || "snapshotdb-dev-insecure-secret-change-in-production";
 }
 
 function hmac(payload: string): string {

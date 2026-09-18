@@ -5,12 +5,12 @@ of running branches. An agent claim assigns one of those private databases and r
 its usable URL without starting an engine or copying database files on the request path.
 
 ```sh
-anybranch clone prod 'postgresql://user:password@source.internal/app'
-anybranch status prod
+snapshotdb clone prod 'postgresql://user:password@source.internal/app'
+snapshotdb status prod
 # Wait for initial replication to finish, then prepare capacity before allocating agents.
-anybranch prepare release-1 --from prod --count 4
-anybranch create agent-1 --from release-1 --print-url
-anybranch create agent-2 --from release-1 --print-url
+snapshotdb prepare release-1 --from prod --count 4
+snapshotdb create agent-1 --from release-1 --print-url
+snapshotdb create agent-2 --from release-1 --print-url
 ```
 
 The same `prepare` and `create` commands work with PostgreSQL, MySQL, MongoDB, and SQLite
@@ -75,7 +75,7 @@ On an isolated deployed server with all engine binaries and Python native driver
 
 ```sh
 pip install 'psycopg[binary]' 'PyMySQL[rsa]' pymongo
-python scripts/latency.py --binary /path/to/anybranch --report /private/latency.json
+python scripts/latency.py --binary /path/to/snapshotdb --report /private/latency.json
 ```
 
 The runner creates disposable 1,000-row sources, syncs each supported network engine,

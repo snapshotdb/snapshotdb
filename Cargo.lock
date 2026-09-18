@@ -9,18 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "anybranch"
-version = "0.4.0"
-dependencies = [
- "fs2",
- "rusqlite",
- "serde_json",
- "signal-hook",
- "tiny_http",
- "ureq",
-]
-
-[[package]]
 name = "ascii"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -446,6 +434,18 @@ name = "smallvec"
 version = "1.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba467056f1b547ed52077911161fc86985becbc60e8e1857c8a144dab0def891"
+
+[[package]]
+name = "snapshotdb"
+version = "0.4.0"
+dependencies = [
+ "fs2",
+ "rusqlite",
+ "serde_json",
+ "signal-hook",
+ "tiny_http",
+ "ureq",
+]
 
 [[package]]
 name = "sqlite-wasm-rs"

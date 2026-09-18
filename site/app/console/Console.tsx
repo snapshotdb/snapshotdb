@@ -32,7 +32,7 @@ export default function Console({ user }: { user: SessionUser }) {
               <circle cx="23" cy="16" r="3" />
               <path d="M9 10v12M9 16h4a6 6 0 0 0 6-6" />
             </svg>
-            any<em>branch</em> <small>CONSOLE</small>
+            snapshot<em>db</em> <small>CONSOLE</small>
           </div>
 
           <div className="side-org">
@@ -97,7 +97,7 @@ export default function Console({ user }: { user: SessionUser }) {
               </svg>
               GitHub
             </a>
-            <div className="side-ver">anybranch console · <span id="ver">—</span></div>
+            <div className="side-ver">snapshotdb console · <span id="ver">—</span></div>
           </div>
 
           <div className="side-user">

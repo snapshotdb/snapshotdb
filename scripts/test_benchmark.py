@@ -55,7 +55,7 @@ class RemoteBenchmarkTests(unittest.TestCase):
         self.assertEqual(batch_rows(12_500_000, 0), 10000)
         self.assertEqual(batch_rows(125_000_000_000, 0), 50000)
     def test_ssh_arguments_are_not_remote_shell_code(self):
-        args = ["env", "ANYBRANCH_HOME=/srv/a b; touch /tmp/no", "python3", "-", '{"x":"$(id)"}']
+        args = ["env", "SNAPSHOTDB_HOME=/srv/a b; touch /tmp/no", "python3", "-", '{"x":"$(id)"}']
         command = benchmark.ssh_command("test-host", args)
         self.assertEqual(shlex.split(command[-1]), args)
         self.assertEqual(command[0], "ssh")

@@ -5,7 +5,7 @@ from compare_services import fairness_gaps, summary
 
 class ComparisonEvidenceTests(unittest.TestCase):
     def test_two_unknown_configs_do_not_establish_parity(self):
-        self.assertTrue(fairness_gaps({'anybranch': {}, 'ardent': {}}))
+        self.assertTrue(fairness_gaps({'snapshotdb': {}, 'ardent': {}}))
 
     def test_failures_remain_in_denominator(self):
         result = summary([{'success': True, 'rw': 10}, {'success': False},

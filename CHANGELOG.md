@@ -9,7 +9,7 @@
   transactions and isolation from other server files, replacing the server-local file URL.
 - Fast job polling removes the previous fixed one-second delay. MySQL URL database names
   no longer break credential setup before the initial restore.
-- Client/server architecture: database commands require `ANYBRANCH_SERVER` and an access
+- Client/server architecture: database commands require `SNAPSHOTDB_SERVER` and an access
   token. Only an explicitly deployed `serve` process runs engines and stores database files.
 - `clone <name> <connection-string>` creates a remote replica; `create --from` makes isolated
   copy-on-write branches on the server. Returned network URLs advertise its configured host.
@@ -47,7 +47,7 @@
   failure; `--format json`. `sync` runs it first; `--fix-replica-identity` applies
   `REPLICA IDENTITY FULL` on the source.
 - Stable public port per branch owned by a proxy in the same binary; idle engines suspend
-  after `ANYBRANCH_IDLE_MINUTES` (default 5) and resume on the next connection. Synced roots
+  after `SNAPSHOTDB_IDLE_MINUTES` (default 5) and resume on the next connection. Synced roots
   never suspend. `up` restores everything after a reboot; `service install` runs it at login.
 - Replication safety: subscriptions use `disable_on_error`; `status` shows the poisoned
   transaction, WAL retained on the source, and initial-copy progress; `repair` skips the
@@ -60,14 +60,14 @@
   codes 0/1/2, idempotent `create`, current branch (`switch`, `info`).
 - Per-root settings: `default_db` (taken from the source URL), ordered `branch_sql` hooks run
   once per new branch, `source` rotation; `lock`/`unlock`.
-- Agent skill (`skills/anybranch/SKILL.md`), GitHub Actions e2e on a Btrfs loop mount with
+- Agent skill (`skills/snapshotdb/SKILL.md`), GitHub Actions e2e on a Btrfs loop mount with
   Postgres, MySQL, and MongoDB, release binaries for macOS and Linux.
-- Per-branch credentials: roots anybranch creates get a generated admin password and every
+- Per-branch credentials: roots snapshotdb creates get a generated admin password and every
   clone rotates to its own; Postgres trusts only its Unix socket, MongoDB runs with a keyFile.
 - Found at scale (88 GB Postgres, 4.5 GB MySQL, 9.8 GB MongoDB) and fixed: no publication
   refresh during the initial copy; 30-minute replication timeouts on both sides so a long DDL
   replay does not drop the link; `repair` re-enables without skipping when a pause was not
-  tied to a transaction; `status` reports the replication worker's error, not anybranch's own.
+  tied to a transaction; `status` reports the replication worker's error, not snapshotdb's own.
 
 ## 0.1.0
 

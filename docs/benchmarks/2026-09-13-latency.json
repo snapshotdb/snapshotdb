@@ -411,8 +411,8 @@
       102.08,
       121.64
     ],
-    "retained_service": "anybranch-agent-automation-fixture",
-    "retained_home": "/srv/anybranch-data/latency/automation"
+    "retained_service": "snapshotdb-agent-automation-fixture",
+    "retained_home": "/srv/snapshotdb-data/latency/automation"
   },
   "remote_client": {
     "state": "passed",

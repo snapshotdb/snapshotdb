@@ -1,11 +1,11 @@
-export const metadata = { title: "MySQL — anybranch docs" };
+export const metadata = { title: "MySQL — snapshotdb docs" };
 
 export default function Page() {
   return (
     <>
       <span className="eyebrow lbl">Connect a database</span>
       <h1>MySQL</h1>
-      <p className="lead">MySQL 8.0+ with GTID replication. Nothing is created on the source — anybranch dumps once, then follows the binlog.</p>
+      <p className="lead">MySQL 8.0+ with GTID replication. Nothing is created on the source — snapshotdb dumps once, then follows the binlog.</p>
 
       <h2>Requirements</h2>
       <ul>
@@ -13,7 +13,7 @@ export default function Page() {
         <li>Binary logging on, with <code>binlog_format = ROW</code>.</li>
         <li>A user with <code>REPLICATION SLAVE</code> plus read access.</li>
       </ul>
-      <pre className="code"><code><span className="p">$</span> anybranch preflight mysql &apos;mysql://user:pass@host:3306/&apos;</code></pre>
+      <pre className="code"><code><span className="p">$</span> snapshotdb preflight mysql &apos;mysql://user:pass@host:3306/&apos;</code></pre>
 
       <h2>How sync works</h2>
       <p>User databases are dumped once with <code>mysqldump --single-transaction --set-gtid-purged=ON</code>, then the replica follows the source’s binlog by GTID auto-position. System schemas (<code>mysql</code>, <code>sys</code>, <code>information_schema</code>, <code>performance_schema</code>) are never mirrored. DDL replicates natively through the binlog, so migrations on production appear on branches with no extra setup.</p>

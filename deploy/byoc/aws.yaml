@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Anybranch private BYOC appliance with retained encrypted Btrfs data volume
+Description: SnapshotDB private BYOC appliance with retained encrypted Btrfs data volume
 Parameters:
   ImageId:
     Type: AWS::EC2::Image::Id
@@ -40,7 +40,7 @@ Resources:
   Network:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Anybranch operator SSH only; API and databases stay on loopback
+      GroupDescription: SnapshotDB operator SSH only; API and databases stay on loopback
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -84,7 +84,7 @@ Resources:
         - Key: Name
           Value: !Sub '${AWS::StackName}-server'
         - Key: Project
-          Value: anybranch
+          Value: snapshotdb
       UserData:
         Fn::Base64: !Sub |
           #!/usr/bin/env bash
@@ -103,11 +103,11 @@ Resources:
           signatures=$(wipefs --no-act --noheadings --output TYPE "$device")
           [ -z "$signatures" ]
           mkfs.btrfs -q "$device"
-          mkdir -p /mnt/anybranch-data
+          mkdir -p /mnt/snapshotdb-data
           uuid=$(blkid -s UUID -o value "$device")
-          echo "UUID=$uuid /mnt/anybranch-data btrfs defaults,noatime 0 0" >> /etc/fstab
-          mount /mnt/anybranch-data
-          anybranch-initialize /mnt/anybranch-data
+          echo "UUID=$uuid /mnt/snapshotdb-data btrfs defaults,noatime 0 0" >> /etc/fstab
+          mount /mnt/snapshotdb-data
+          snapshotdb-initialize /mnt/snapshotdb-data
   Attachment:
     Type: AWS::EC2::VolumeAttachment
     Properties:
@@ -122,4 +122,4 @@ Outputs:
   PrivateIp:
     Value: !GetAtt Server.PrivateIp
   DeploymentCheck:
-    Value: 'Check cloud-init status --wait and systemctl status anybranch over SSH before use. Stack creation alone does not certify application readiness.'
+    Value: 'Check cloud-init status --wait and systemctl status snapshotdb over SSH before use. Stack creation alone does not certify application readiness.'

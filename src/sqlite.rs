@@ -24,7 +24,7 @@ pub fn lock(b: &Branch) -> R<Option<fs::File>> {
 }
 
 pub fn url(b: &Branch) -> R<String> {
-    let host = env::var("ANYBRANCH_PUBLIC_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+    let host = env::var("SNAPSHOTDB_PUBLIC_HOST").unwrap_or_else(|_| "127.0.0.1".into());
     Ok(format!(
         "http://{host}:{}/v1/query?token={}",
         b.port().ok_or("SQLite endpoint is stopped")?,
@@ -33,7 +33,7 @@ pub fn url(b: &Branch) -> R<String> {
 }
 
 pub fn serve(b: &Branch) -> R<()> {
-    let bind = env::var("ANYBRANCH_DB_BIND").unwrap_or_else(|_| "127.0.0.1".into());
+    let bind = env::var("SNAPSHOTDB_DB_BIND").unwrap_or_else(|_| "127.0.0.1".into());
     let server = Server::http((bind.as_str(), b.port().ok_or("no SQLite port")?))
         .map_err(|e| e.to_string())?;
     let token = b.password().ok_or("SQLite credentials missing")?;

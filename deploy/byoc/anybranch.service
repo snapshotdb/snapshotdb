@@ -1,18 +1,18 @@
 [Unit]
-Description=Anybranch BYOC database branching server
+Description=SnapshotDB BYOC database branching server
 After=network-online.target
 Wants=network-online.target
-RequiresMountsFor=/srv/anybranch
-ConditionPathExists=/etc/anybranch.env
+RequiresMountsFor=/srv/snapshotdb
+ConditionPathExists=/etc/snapshotdb.env
 
 [Service]
 Type=simple
-User=anybranch
-Group=anybranch
-EnvironmentFile=/etc/anybranch.env
-Environment=USER=anybranch
+User=snapshotdb
+Group=snapshotdb
+EnvironmentFile=/etc/snapshotdb.env
+Environment=USER=snapshotdb
 Environment=PATH=/usr/lib/postgresql/16/bin:/usr/local/bin:/usr/sbin:/usr/bin:/bin
-ExecStart=/usr/local/bin/anybranch serve --bind 127.0.0.1:7432 --db-bind 127.0.0.1 --public-host 127.0.0.1
+ExecStart=/usr/local/bin/snapshotdb serve --bind 127.0.0.1:7432 --db-bind 127.0.0.1 --public-host 127.0.0.1
 Restart=on-failure
 RestartSec=5
 UMask=0077

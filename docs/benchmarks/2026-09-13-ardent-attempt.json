@@ -3,7 +3,7 @@
   "cli_package": "ardent-cli",
   "cli_version": "0.0.104",
   "authenticated_with": "existing local CLI session",
-  "connector_name": "anybranch-1tb-comparison",
+  "connector_name": "snapshotdb-1tb-comparison",
   "connector_id": "connector_ffcad736-d72f-406e-b19f-73948016be92",
   "state": "waiting_after_source_fix",
   "successful_branch_samples": 0,

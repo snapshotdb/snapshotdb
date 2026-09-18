@@ -1,13 +1,13 @@
 ---
-name: anybranch
-description: Do all database work on a disposable anybranch branch cloned from the production replica. Use when a task touches a database: migrations, backfills, data investigations, tests, or anything an agent might get wrong.
+name: snapshotdb
+description: Do all database work on a disposable snapshotdb branch cloned from the production replica. Use when a task touches a database: migrations, backfills, data investigations, tests, or anything an agent might get wrong.
 ---
 
-# anybranch: work on a branch, never on the main database
+# snapshotdb: work on a branch, never on the main database
 
-`anybranch` sends commands to a deployed server configured with `ANYBRANCH_SERVER` and
-`ANYBRANCH_TOKEN`. All database files and engines remain on that server; without a server,
-the CLI fails. Only deployment operators run `anybranch serve`.
+`snapshotdb` sends commands to a deployed server configured with `SNAPSHOTDB_SERVER` and
+`SNAPSHOTDB_TOKEN`. All database files and engines remain on that server; without a server,
+the CLI fails. Only deployment operators run `snapshotdb serve`.
 
 It gives you an isolated, writable copy of the production replica on the server.
 Writes on a branch never reach production or other branches. A branch URL carries no
@@ -24,14 +24,14 @@ production credentials, so it is safe to use freely.
 ## Commands
 
 ```sh
-anybranch list                                   # what exists; * marks the current branch; passwords redacted
-anybranch create <task-name> --from prod --print-url   # new branch, becomes current; prints only the URL
-anybranch info --print-url                       # full URL of the current branch (use this on every step)
-anybranch reset <task-name>                      # throw away changes, re-clone from prod
-anybranch rm <task-name>                         # delete; prints nothing on success
+snapshotdb list                                   # what exists; * marks the current branch; passwords redacted
+snapshotdb create <task-name> --from prod --print-url   # new branch, becomes current; prints only the URL
+snapshotdb info --print-url                       # full URL of the current branch (use this on every step)
+snapshotdb reset <task-name>                      # throw away changes, re-clone from prod
+snapshotdb rm <task-name>                         # delete; prints nothing on success
 ```
 
-`prod` is the name of the synced root in most setups; run `anybranch list` to see the roots
+`prod` is the name of the synced root in most setups; run `snapshotdb list` to see the roots
 (they have `-` in the parent column). Use `--format json` on `list`, `info`, or `create` when
 you need to parse output. Re-running `create` with the same name is safe and returns the
 same branch.
@@ -42,16 +42,16 @@ Shell state rarely survives between an agent's steps, so re-read the URL each ti
 of exporting it:
 
 ```sh
-anybranch create fix-orders-index --from prod --print-url >/dev/null || exit 1
-psql "$(anybranch info --print-url)" -v ON_ERROR_STOP=1 <<'SQL'
+snapshotdb create fix-orders-index --from prod --print-url >/dev/null || exit 1
+psql "$(snapshotdb info --print-url)" -v ON_ERROR_STOP=1 <<'SQL'
 begin;
--- migration / backfill here; a failed step leaves the branch clean, or run `anybranch reset`
+-- migration / backfill here; a failed step leaves the branch clean, or run `snapshotdb reset`
 commit;
 SQL
-anybranch rm fix-orders-index
+snapshotdb rm fix-orders-index
 ```
 
-Do not write the URL to a file; ask `anybranch info --print-url` again instead.
+Do not write the URL to a file; ask `snapshotdb info --print-url` again instead.
 
 Branch names: 1-40 letters, digits, `-`, `_`, or `.`, not starting with `.` or `_`.
 

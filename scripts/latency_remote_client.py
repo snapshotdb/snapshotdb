@@ -27,8 +27,8 @@ def main():
     p.add_argument("--server-home", required=True)
     p.add_argument("--report", type=Path, required=True)
     args = p.parse_args()
-    env = dict(os.environ, ANYBRANCH_HOME=str(args.report.parent/"remote-client-must-not-exist"))
-    env.pop("ANYBRANCH_INTERNAL", None)
+    env = dict(os.environ, SNAPSHOTDB_HOME=str(args.report.parent/"remote-client-must-not-exist"))
+    env.pop("SNAPSHOTDB_INTERNAL", None)
     ssh = ["ssh","-F",args.ssh_config,"-S",args.ssh_socket]
     forwarded = set()
     report = {"state":"running","measurement":"Laptop CLI -> SSH -> Mumbai API -> returned URL -> native driver connection -> read -> committed write -> read-back", "network_preparation":"SSH forwarding established before timed claims", "engines":{}, "checks":[]}
@@ -98,7 +98,7 @@ def main():
             report["checks"].append(engine+" committed writes and source/sibling isolation through remote URLs")
             args.report.write_text(json.dumps(report,indent=2)+"\n")
             print(engine+": "+json.dumps(report["engines"][engine]),flush=True)
-        assert not Path(env["ANYBRANCH_HOME"]).exists()
+        assert not Path(env["SNAPSHOTDB_HOME"]).exists()
         report["checks"].append("no database files or engines on the laptop")
         report["state"] = "passed"
         report["latency_target_passed"] = all(v["all_under_1s"] for v in report["engines"].values())

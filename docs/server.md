@@ -1,7 +1,7 @@
-# Deploy Anybranch
+# Deploy SnapshotDB
 
 ```text
-Developer CLI --HTTPS + token--> Anybranch server --replication--> Source database
+Developer CLI --HTTPS + token--> SnapshotDB server --replication--> Source database
                                   |
                                   +-- full replica on server storage
                                   +-- isolated branch A (shared blocks until writes)
@@ -21,7 +21,7 @@ startup and cloning into preparation and returns a private, writable endpoint at
 
 ## Server setup
 
-Use a dedicated Linux host with Btrfs or XFS with reflink enabled. Put all Anybranch data
+Use a dedicated Linux host with Btrfs or XFS with reflink enabled. Put all SnapshotDB data
 on that filesystem. Run as an ordinary service user with engine binaries on its PATH.
 For PostgreSQL, use PostgreSQL 15+ and matching `pg_ctl`, `initdb`, `psql`, `pg_dump`, and
 `pg_dumpall` binaries. For the other engines see the main README.
@@ -31,16 +31,16 @@ bubblewrap without disabling the global user-namespace restriction. If namespace
 bubblewrap are unavailable, branch startup fails instead of running unsandboxed.
 
 Build this checkout on the server with `cargo build --release --locked`, then install
-`target/release/anybranch` as `/usr/local/bin/anybranch`. The client must use the matching
+`target/release/snapshotdb` as `/usr/local/bin/snapshotdb`. The client must use the matching
 client/server version; v0.3.0 and earlier clients execute databases locally.
 
 Example server environment (store the token in a mode-0600 environment file):
 
 ```sh
-export ANYBRANCH_HOME=/srv/anybranch
-export ANYBRANCH_TOKEN='<at least 32 random printable characters>'
+export SNAPSHOTDB_HOME=/srv/snapshotdb
+export SNAPSHOTDB_TOKEN='<at least 32 random printable characters>'
 export PATH=/usr/lib/postgresql/16/bin:/usr/local/bin:/usr/bin:/bin
-anybranch serve --bind 127.0.0.1:7432 \
+snapshotdb serve --bind 127.0.0.1:7432 \
   --db-bind 0.0.0.0 --public-host branches.internal
 ```
 
@@ -54,19 +54,19 @@ VPN; the proxy forwards native database traffic and does not add database TLS. T
 token is an administrative credential for the whole deployment. This is a single-admin
 deployment, not a multi-tenant public service.
 
-A systemd unit is provided in [deploy/anybranch.service](../deploy/anybranch.service).
-Create the service user and writable `/srv/anybranch` directory first, and set the token
-and PostgreSQL PATH in `/etc/anybranch.env`. Adjust the hostname and paths in the unit for
+A systemd unit is provided in [deploy/snapshotdb.service](../deploy/snapshotdb.service).
+Create the service user and writable `/srv/snapshotdb` directory first, and set the token
+and PostgreSQL PATH in `/etc/snapshotdb.env`. Adjust the hostname and paths in the unit for
 your host. Starting `serve` restores existing branch proxies and synced roots.
 
 ## Client use
 
 ```sh
-export ANYBRANCH_SERVER=https://anybranch.example.com
-export ANYBRANCH_TOKEN='<server token>'
-anybranch clone prod 'postgresql://replication-user:password@source.internal/app'
-anybranch status prod
-anybranch create feature-x --from prod --print-url
+export SNAPSHOTDB_SERVER=https://snapshotdb.example.com
+export SNAPSHOTDB_TOKEN='<server token>'
+snapshotdb clone prod 'postgresql://replication-user:password@source.internal/app'
+snapshotdb status prod
+snapshotdb create feature-x --from prod --print-url
 ```
 
 The resulting URL points at `branches.internal`, with the branch's own credentials. A
@@ -76,7 +76,7 @@ replica that is still copying or paused. Once ready, cloning briefly
 stops the replica to get consistent files; it does not stop the production source.
 
 Long-running operations can be submitted with `--detach`, which prints a job ID. Run
-`anybranch job <id>` to wait later. Jobs continue if the client disconnects. Completed
+`snapshotdb job <id>` to wait later. Jobs continue if the client disconnects. Completed
 results are stored in the server's private `.jobs` directory and may contain database
 URLs. Remove old completed job files when they are no longer needed. After a server restart,
 interrupted jobs require inspection before retrying; commands are never blindly replayed.
@@ -102,8 +102,8 @@ the 1 TB run. This is a minimum preflight reserve, not a guaranteed maximum disk
 For development, explicitly run the same test server locally on macOS/APFS or Linux:
 
 ```sh
-python3 scripts/benchmark.py --local --home /tmp/anybranch-bench \
-  --binary "$PWD/target/release/anybranch" \
+python3 scripts/benchmark.py --local --home /tmp/snapshotdb-bench \
+  --binary "$PWD/target/release/snapshotdb" \
   --engine-bin /opt/homebrew/opt/postgresql@17/bin --target-mb 100
 ```
 
@@ -118,16 +118,16 @@ using `--home` and set `--target-gb 1000`.
 Start with a 1 GB smoke run:
 
 ```sh
-python3 scripts/benchmark.py --host user@server --home /srv/anybranch-bench \
-  --binary /usr/local/bin/anybranch --engine-bin /usr/lib/postgresql/16/bin \
+python3 scripts/benchmark.py --host user@server --home /srv/snapshotdb-bench \
+  --binary /usr/local/bin/snapshotdb --engine-bin /usr/lib/postgresql/16/bin \
   --target-gb 1
 ```
 
 Then run **1 TB = 1,000,000,000,000 bytes**:
 
 ```sh
-python3 scripts/benchmark.py --host user@server --home /srv/anybranch-bench \
-  --binary /usr/local/bin/anybranch --engine-bin /usr/lib/postgresql/16/bin \
+python3 scripts/benchmark.py --host user@server --home /srv/snapshotdb-bench \
+  --binary /usr/local/bin/snapshotdb --engine-bin /usr/lib/postgresql/16/bin \
   --target-gb 1000 --timeout-hours 48
 ```
 
@@ -155,9 +155,9 @@ To resume an interrupted **source-generation** phase, stop the old server/proces
 then use the same target and run directory with `--resume` and `--keep`:
 
 ```sh
-python3 scripts/benchmark.py --host user@server --home /srv/anybranch-bench \
-  --binary /usr/local/bin/anybranch --engine-bin /usr/lib/postgresql/16/bin \
-  --target-gb 1000 --keep --resume /srv/anybranch-bench/scale-EXISTING
+python3 scripts/benchmark.py --host user@server --home /srv/snapshotdb-bench \
+  --binary /usr/local/bin/snapshotdb --engine-bin /usr/lib/postgresql/16/bin \
+  --target-gb 1000 --keep --resume /srv/snapshotdb-bench/scale-EXISTING
 ```
 
 Resume verifies the saved target, source marker, and contiguous committed row IDs.
@@ -175,7 +175,7 @@ lists a CC-BY-NC-SA-4.0 license. These are downloadable records, not a running P
 database with replication credentials; they need importing into a supported engine first.
 File encoding and compression also mean download size does not establish database size.
 
-For testing Anybranch, the built-in synthetic PostgreSQL generator avoids that download
+For testing SnapshotDB, the built-in synthetic PostgreSQL generator avoids that download
 and import step. It measures actual table/index bytes and uses the same replication and
 branch operations as a real source. A source hosted elsewhere would still require space
-for a full replica on the Anybranch server. Copy-on-write saves space on subsequent branches.
+for a full replica on the SnapshotDB server. Copy-on-write saves space on subsequent branches.

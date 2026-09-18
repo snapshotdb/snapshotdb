@@ -19,13 +19,13 @@ export default function SignIn({ githubReady, error }: { githubReady: boolean; e
               <circle cx="23" cy="16" r="3" />
               <path d="M9 10v12M9 16h4a6 6 0 0 0 6-6" />
             </svg>
-            any<em>branch</em>
+            snapshot<em>db</em>
           </div>
 
           <h1>Sign in to the console</h1>
           <p>
             Manage your sources and branches. You’ll connect the console to your self-hosted
-            anybranch server with its access token after signing in.
+            snapshotdb server with its access token after signing in.
           </p>
 
           {error && <div className="err">{ERRORS[error] || "Something went wrong. Try again."}</div>}

@@ -1,13 +1,13 @@
-export const metadata = { title: "anybranch docs — Overview" };
+export const metadata = { title: "snapshotdb docs — Overview" };
 
 export default function Page() {
   return (
     <>
       <span className="eyebrow lbl">Documentation</span>
-      <h1>anybranch</h1>
+      <h1>snapshotdb</h1>
       <p className="lead">Branch your database like code. An isolated, writable copy of production in seconds — any size, any engine, on infrastructure you own. Open source, self-hosted, Apache-2.0.</p>
 
-      <p>anybranch keeps a live replica of your production database on a server you run, then cuts copy-on-write branches off it. Each branch is a real, writable database with its own port and its own generated credentials. A 50 GiB branch costs the same as a 50 MiB one, because nothing is copied until a page changes.</p>
+      <p>snapshotdb keeps a live replica of your production database on a server you run, then cuts copy-on-write branches off it. Each branch is a real, writable database with its own port and its own generated credentials. A 50 GiB branch costs the same as a 50 MiB one, because nothing is copied until a page changes.</p>
 
       <div className="note"><b>New here?</b> Start with the <a href="/docs/quickstart">Quickstart</a> — preflight a source, keep a replica, and cut your first branch in three commands.</div>
 
@@ -21,7 +21,7 @@ export default function Page() {
       </ul>
 
       <h2>How it compares to hosted branching</h2>
-      <p>Managed branching services sell the same idea — a replica of production plus instant branches — as a Postgres-only, multi-tenant cloud product. anybranch is the open-source, self-hosted shape of that: you deploy the server, it uses each engine’s own replication instead of a proprietary pipeline, it covers four engines, and your data never leaves your machines. It has no accounts, orgs, billing, or bring-your-own-cloud — it is one server with one admin token.</p>
+      <p>Managed branching services sell the same idea — a replica of production plus instant branches — as a Postgres-only, multi-tenant cloud product. snapshotdb is the open-source, self-hosted shape of that: you deploy the server, it uses each engine’s own replication instead of a proprietary pipeline, it covers four engines, and your data never leaves your machines. It has no accounts, orgs, billing, or bring-your-own-cloud — it is one server with one admin token.</p>
 
       <h2>Explore</h2>
       <ul>

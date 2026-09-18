@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
       headers: {
         Authorization: `Bearer ${accessToken}`,
         Accept: "application/vnd.github+json",
-        "User-Agent": "anybranch-console",
+        "User-Agent": "snapshotdb-console",
       },
     });
     gh = await userRes.json();

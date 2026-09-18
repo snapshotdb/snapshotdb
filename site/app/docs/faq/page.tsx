@@ -1,11 +1,11 @@
-export const metadata = { title: "FAQ — anybranch docs" };
+export const metadata = { title: "FAQ — snapshotdb docs" };
 
 export default function Page() {
   return (
     <>
       <span className="eyebrow lbl">Reference</span>
       <h1>FAQ</h1>
-      <p className="lead">Common questions about branching, replication, and what anybranch does and does not do.</p>
+      <p className="lead">Common questions about branching, replication, and what snapshotdb does and does not do.</p>
 
       <h2>How fast is a branch, really?</h2>
       <p>Branch time does not grow with data size. Measured on an M5 Pro laptop (APFS): a Postgres branch of an 88&nbsp;GB / 600M-row database takes about 0.3&nbsp;s from a stopped parent and 0.6&nbsp;s from a running one. Two clones of that database consumed no measurable extra disk. Prepared snapshots claim in well under a second.</p>
@@ -20,10 +20,10 @@ export default function Page() {
       <p>Postgres, MySQL, MongoDB, and SQLite. Hosted branching products are Postgres-only.</p>
 
       <h2>Is my data sent anywhere?</h2>
-      <p>No. anybranch is self-hosted. The replica and every branch live on a server you run; nothing leaves your infrastructure and there is no telemetry.</p>
+      <p>No. snapshotdb is self-hosted. The replica and every branch live on a server you run; nothing leaves your infrastructure and there is no telemetry.</p>
 
       <h2>What is intentionally not here?</h2>
-      <p>No accounts, organizations, teams, roles, billing, or bring-your-own-cloud. anybranch is one server with one admin token. Those are multi-tenant SaaS concerns; if you need shared access, run the server where your team can reach it.</p>
+      <p>No accounts, organizations, teams, roles, billing, or bring-your-own-cloud. snapshotdb is one server with one admin token. Those are multi-tenant SaaS concerns; if you need shared access, run the server where your team can reach it.</p>
 
       <h2>What are the known limits?</h2>
       <ul>
