@@ -3,7 +3,7 @@
 #   curl -fsSL https://www.snapshotdb.io/install.sh | sh
 set -e
 
-REPO="${SNAPSHOTDB_REPO:-GitHoobar/anybranch}"   # repo rename to snapshotdb pending
+BASE_URL="${SNAPSHOTDB_BASE_URL:-https://www.snapshotdb.io/dl}"
 BIN="snapshotdb"
 PREFIX="${SNAPSHOTDB_PREFIX:-/usr/local/bin}"
 
@@ -13,38 +13,33 @@ err() { printf 'error: %s\n' "$1" >&2; exit 1; }
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
 arch=$(uname -m)
 case "$arch" in
-  x86_64|amd64) arch=x86_64 ;;
-  arm64|aarch64) arch=aarch64 ;;
+  x86_64|amd64) arch=amd64 ;;
+  arm64|aarch64) arch=arm64 ;;
   *) err "unsupported architecture: $arch" ;;
 esac
 case "$os" in
-  darwin) target="$arch-apple-darwin" ;;
-  linux)  target="$arch-unknown-linux-gnu" ;;
+  darwin) asset="$BIN-darwin-$arch" ;;
+  linux)
+    [ "$arch" = amd64 ] || err "unsupported architecture for linux: $arch (only amd64 is published)"
+    asset="$BIN-linux-$arch"
+    ;;
   *) err "unsupported OS: $os" ;;
 esac
 
-say "installing for $target"
+say "installing $asset"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-url="https://github.com/$REPO/releases/latest/download/$BIN-$target.tar.gz"
+url="$BASE_URL/$asset"
 
-if curl -fsSL "$url" -o "$tmp/$BIN.tar.gz" 2>/dev/null; then
-  tar -xzf "$tmp/$BIN.tar.gz" -C "$tmp"
-  if [ -w "$PREFIX" ]; then
-    mv "$tmp/$BIN" "$PREFIX/$BIN" && chmod +x "$PREFIX/$BIN"
-  else
-    say "writing to $PREFIX (needs sudo)"
-    sudo mv "$tmp/$BIN" "$PREFIX/$BIN" && sudo chmod +x "$PREFIX/$BIN"
-  fi
-  say "installed to $PREFIX/$BIN"
-elif command -v cargo >/dev/null 2>&1; then
-  say "no prebuilt binary for $target — building from source with cargo"
-  cargo install --git "https://github.com/$REPO" --locked
-  say "installed via cargo"
+curl -fsSL "$url" -o "$tmp/$BIN" || err "download failed: $url"
+chmod +x "$tmp/$BIN"
+
+if [ -w "$PREFIX" ]; then
+  mv "$tmp/$BIN" "$PREFIX/$BIN"
 else
-  err "no prebuilt binary for $target and cargo not found.
-  install Rust (https://rustup.rs) and re-run, or download a release:
-  https://github.com/$REPO/releases"
+  say "writing to $PREFIX (needs sudo)"
+  sudo mv "$tmp/$BIN" "$PREFIX/$BIN"
 fi
 
+say "installed to $PREFIX/$BIN"
 say "done — run '$BIN --help' · docs: https://www.snapshotdb.io/docs"
