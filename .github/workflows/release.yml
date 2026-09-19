@@ -20,7 +20,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - run: cargo build --release --target ${{ matrix.target }}
-      - run: tar -C target/${{ matrix.target }}/release -czf snapshotdb-${{ github.ref_name }}-${{ matrix.target }}.tar.gz snapshotdb
+      - run: tar -C target/${{ matrix.target }}/release -czf snapshotdb-${{ matrix.target }}.tar.gz snapshotdb
       - uses: softprops/action-gh-release@v2
         with:
           files: snapshotdb-*.tar.gz
