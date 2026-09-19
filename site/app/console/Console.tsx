@@ -32,7 +32,7 @@ export default function Console({ user }: { user: SessionUser }) {
               <circle cx="23" cy="16" r="3" />
               <path d="M9 10v12M9 16h4a6 6 0 0 0 6-6" />
             </svg>
-            any<em>branch</em> <small>CONSOLE</small>
+            <span className="wm">snapshot<em>db</em></span> <small>CONSOLE</small>
           </div>
 
           <div className="side-org">
@@ -97,7 +97,7 @@ export default function Console({ user }: { user: SessionUser }) {
               </svg>
               GitHub
             </a>
-            <div className="side-ver">anybranch console · <span id="ver">—</span></div>
+            <div className="side-ver">snapshotdb console · <span id="ver">—</span></div>
           </div>
 
           <div className="side-user">
@@ -109,7 +109,7 @@ export default function Console({ user }: { user: SessionUser }) {
             )}
             <div className="u-t">
               <div className="nm">{display}</div>
-              <div className="hd">{user.provider === "demo" ? "demo session" : "@" + user.login}</div>
+              <div className="hd">{"@" + user.login}</div>
             </div>
             <a className="out" href="/api/auth/logout" title="Sign out" aria-label="Sign out">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

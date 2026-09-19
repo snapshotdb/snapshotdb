@@ -30,30 +30,30 @@ while read -r device kind; do
   data_device=$device
 done < <(lsblk -dnpo NAME,TYPE)
 [ -n "$data_device" ] || { echo 'No blank 32 GiB data disk found'; exit 1; }
-mkfs.btrfs -q -L anybranch-data "$data_device"
-mkdir -p /srv/anybranch-data
-echo "UUID=$(blkid -s UUID -o value "$data_device") /srv/anybranch-data btrfs defaults,noatime 0 0" >> /etc/fstab
-mount /srv/anybranch-data
-useradd --create-home --shell /bin/bash anybranch
-install -d -o anybranch -g anybranch -m 700 /srv/anybranch-data/server /srv/anybranch-data/bench /srv/anybranch-data/tmp
-ln -s /srv/anybranch-data/server /srv/anybranch
-install -d -o anybranch -g anybranch /opt/anybranch-src
+mkfs.btrfs -q -L snapshotdb-data "$data_device"
+mkdir -p /srv/snapshotdb-data
+echo "UUID=$(blkid -s UUID -o value "$data_device") /srv/snapshotdb-data btrfs defaults,noatime 0 0" >> /etc/fstab
+mount /srv/snapshotdb-data
+useradd --create-home --shell /bin/bash snapshotdb
+install -d -o snapshotdb -g snapshotdb -m 700 /srv/snapshotdb-data/server /srv/snapshotdb-data/bench /srv/snapshotdb-data/tmp
+ln -s /srv/snapshotdb-data/server /srv/snapshotdb
+install -d -o snapshotdb -g snapshotdb /opt/snapshotdb-src
 
 fallocate -l 2G /swapfile
 chmod 600 /swapfile
 mkswap /swapfile
 swapon /swapfile
 echo '/swapfile none swap sw 0 0' >> /etc/fstab
-curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o /tmp/anybranch-rustup.sh
-runuser -u anybranch -- sh /tmp/anybranch-rustup.sh -y --profile minimal
-rm /tmp/anybranch-rustup.sh
+curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o /tmp/snapshotdb-rustup.sh
+runuser -u snapshotdb -- sh /tmp/snapshotdb-rustup.sh -y --profile minimal
+rm /tmp/snapshotdb-rustup.sh
 
 umask 027
 {
-  printf 'ANYBRANCH_TOKEN=%s\n' "$(openssl rand -hex 32)"
-  printf '%s\n' 'ANYBRANCH_HOME=/srv/anybranch' 'ANYBRANCH_SERVER=http://127.0.0.1:7432' \
-    'PATH=/home/anybranch/.cargo/bin:/usr/lib/postgresql/16/bin:/usr/local/bin:/usr/sbin:/usr/bin:/bin'
-} > /etc/anybranch.env
-chown root:anybranch /etc/anybranch.env
-chmod 640 /etc/anybranch.env
-touch /var/lib/anybranch-bootstrap-ready
+  printf 'SNAPSHOTDB_TOKEN=%s\n' "$(openssl rand -hex 32)"
+  printf '%s\n' 'SNAPSHOTDB_HOME=/srv/snapshotdb' 'SNAPSHOTDB_SERVER=http://127.0.0.1:7432' \
+    'PATH=/home/snapshotdb/.cargo/bin:/usr/lib/postgresql/16/bin:/usr/local/bin:/usr/sbin:/usr/bin:/bin'
+} > /etc/snapshotdb.env
+chown root:snapshotdb /etc/snapshotdb.env
+chmod 640 /etc/snapshotdb.env
+touch /var/lib/snapshotdb-bootstrap-ready

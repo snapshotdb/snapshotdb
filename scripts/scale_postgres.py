@@ -79,8 +79,8 @@ def run_benchmark(config):
         raise RuntimeError(f"need at least {needed:,} free bytes; found {free:,}")
     mount, clone_command = filesystem(base)
     work = work or Path(tempfile.mkdtemp(prefix="scale-", dir=base))
-    os.environ["ANYBRANCH_HOME"] = str(work)
-    os.environ["ANYBRANCH_IDLE_MINUTES"] = "0"
+    os.environ["SNAPSHOTDB_HOME"] = str(work)
+    os.environ["SNAPSHOTDB_IDLE_MINUTES"] = "0"
     report = dict(target_bytes=target, filesystem=mount, run_directory=str(work), checks=[], timings_seconds={})
     if resume:
         report["resumed_generation"] = True
@@ -146,7 +146,7 @@ def run_benchmark(config):
         report["version"] = ab("--version")
         # Fail before generating data if this volume cannot clone without copying.
         probe = work / "clone-probe"
-        probe.write_bytes(b"anybranch reflink probe\n")
+        probe.write_bytes(b"snapshotdb reflink probe\n")
         execute([*clone_command, str(probe), str(probe) + "-copy"])
         probe.unlink()
         Path(str(probe) + "-copy").unlink()
@@ -154,8 +154,8 @@ def run_benchmark(config):
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             api_port = listener.getsockname()[1]
-        os.environ["ANYBRANCH_SERVER"] = f"http://127.0.0.1:{api_port}"
-        os.environ["ANYBRANCH_TOKEN"] = secrets.token_hex(32)
+        os.environ["SNAPSHOTDB_SERVER"] = f"http://127.0.0.1:{api_port}"
+        os.environ["SNAPSHOTDB_TOKEN"] = secrets.token_hex(32)
         server_log = (work / "server.log").open("a" if resume else "w")
         server = subprocess.Popen([config["binary"], "serve", "--bind", f"127.0.0.1:{api_port}",
                                    "--public-host", "127.0.0.1"], stdout=server_log, stderr=server_log)
@@ -228,7 +228,7 @@ def run_benchmark(config):
         query("source", "UPDATE public.scale_marker SET value = 'live' WHERE id = 1;")
         wait_for("live source update reaches replica", lambda: query("replica",
                  "SELECT value FROM public.scale_marker WHERE id = 1;") == "live")
-        # DDL is sent on its own, matching Anybranch's supported replay path.
+        # DDL is sent on its own, matching SnapshotDB's supported replay path.
         query("source", "ALTER TABLE public.scale_marker ADD COLUMN extra integer DEFAULT 7;")
         wait_for("schema change reaches replica", lambda: query("replica",
                  "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' "

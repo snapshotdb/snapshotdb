@@ -15,14 +15,14 @@ static SERVER_FIXTURE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 #[test]
 fn graceful_shutdown_stops_proxies_and_preserves_database() {
     let _fixture = SERVER_FIXTURE.lock().unwrap();
-    let base = std::env::temp_dir().join(format!("anybranch-shutdown-{}", std::process::id()));
+    let base = std::env::temp_dir().join(format!("snapshotdb-shutdown-{}", std::process::id()));
     fs::create_dir_all(&base).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     drop(listener);
-    let start = || Command::new(env!("CARGO_BIN_EXE_anybranch"))
-        .env("ANYBRANCH_HOME", base.join("server"))
-        .env("ANYBRANCH_TOKEN", TOKEN)
+    let start = || Command::new(env!("CARGO_BIN_EXE_snapshotdb"))
+        .env("SNAPSHOTDB_HOME", base.join("server"))
+        .env("SNAPSHOTDB_TOKEN", TOKEN)
         .args(["serve", "--bind", &addr.to_string(), "--public-host", "127.0.0.1"])
         .stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
     let mut server = start();
@@ -35,8 +35,8 @@ fn graceful_shutdown_stops_proxies_and_preserves_database() {
     };
     ready();
     let command = |args: &[&str]| {
-        let out = cli(&base).env("ANYBRANCH_SERVER", format!("http://{addr}"))
-            .env("ANYBRANCH_TOKEN", TOKEN).args(args).output().unwrap();
+        let out = cli(&base).env("SNAPSHOTDB_SERVER", format!("http://{addr}"))
+            .env("SNAPSHOTDB_TOKEN", TOKEN).args(args).output().unwrap();
         assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
         String::from_utf8(out.stdout).unwrap().trim().to_owned()
     };
@@ -82,17 +82,17 @@ impl Drop for Fixture {
 }
 
 fn cli(base: &std::path::Path) -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_anybranch"));
-    c.env("ANYBRANCH_HOME", base.join("client-must-not-exist"))
-        .env_remove("ANYBRANCH_SERVER")
-        .env_remove("ANYBRANCH_INTERNAL")
-        .env_remove("ANYBRANCH_TOKEN");
+    let mut c = Command::new(env!("CARGO_BIN_EXE_snapshotdb"));
+    c.env("SNAPSHOTDB_HOME", base.join("client-must-not-exist"))
+        .env_remove("SNAPSHOTDB_SERVER")
+        .env_remove("SNAPSHOTDB_INTERNAL")
+        .env_remove("SNAPSHOTDB_TOKEN");
     c
 }
 
 #[test]
 fn client_requires_server_and_never_falls_back() {
-    let base = std::env::temp_dir().join(format!("anybranch-no-server-{}", std::process::id()));
+    let base = std::env::temp_dir().join(format!("snapshotdb-no-server-{}", std::process::id()));
     for args in [
         vec!["import", "sqlite", "test", "--new"],
         vec!["_proxy", "test"],
@@ -102,16 +102,16 @@ fn client_requires_server_and_never_falls_back() {
         assert!(String::from_utf8_lossy(&out.stderr).contains("no server configured"));
     }
     let out = cli(&base)
-        .env("ANYBRANCH_SERVER", "http://127.0.0.1:1")
-        .env("ANYBRANCH_TOKEN", TOKEN)
+        .env("SNAPSHOTDB_SERVER", "http://127.0.0.1:1")
+        .env("SNAPSHOTDB_TOKEN", TOKEN)
         .args(["import", "sqlite", "test", "--new"])
         .output()
         .unwrap();
     assert!(!out.status.success());
     assert!(!base.exists(), "client created local storage");
     let out = cli(&base)
-        .env("ANYBRANCH_SERVER", "http://db.example.com")
-        .env("ANYBRANCH_TOKEN", TOKEN)
+        .env("SNAPSHOTDB_SERVER", "http://db.example.com")
+        .env("SNAPSHOTDB_TOKEN", TOKEN)
         .arg("list")
         .output()
         .unwrap();
@@ -121,14 +121,14 @@ fn client_requires_server_and_never_falls_back() {
 #[test]
 fn authenticated_jobs_execute_only_in_server_storage() {
     let _fixture = SERVER_FIXTURE.lock().unwrap();
-    let base = std::env::temp_dir().join(format!("anybranch-api-{}", std::process::id()));
+    let base = std::env::temp_dir().join(format!("snapshotdb-api-{}", std::process::id()));
     fs::create_dir_all(&base).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = listener.local_addr().unwrap();
     drop(listener);
-    let server = Command::new(env!("CARGO_BIN_EXE_anybranch"))
-        .env("ANYBRANCH_HOME", base.join("server"))
-        .env("ANYBRANCH_TOKEN", TOKEN)
+    let server = Command::new(env!("CARGO_BIN_EXE_snapshotdb"))
+        .env("SNAPSHOTDB_HOME", base.join("server"))
+        .env("SNAPSHOTDB_TOKEN", TOKEN)
         .args([
             "serve",
             "--bind",
@@ -165,8 +165,8 @@ fn authenticated_jobs_execute_only_in_server_storage() {
     assert!(matches!(invalid, Err(ureq::Error::StatusCode(400))));
     let mut command = cli(&f.base);
     command
-        .env("ANYBRANCH_SERVER", &f.url)
-        .env("ANYBRANCH_TOKEN", TOKEN);
+        .env("SNAPSHOTDB_SERVER", &f.url)
+        .env("SNAPSHOTDB_TOKEN", TOKEN);
     let out = command
         .args(["import", "sqlite", "fixture", "--new", "--detach"])
         .output()
@@ -178,8 +178,8 @@ fn authenticated_jobs_execute_only_in_server_storage() {
     );
     let job = String::from_utf8(out.stdout).unwrap();
     let out = cli(&f.base)
-        .env("ANYBRANCH_SERVER", &f.url)
-        .env("ANYBRANCH_TOKEN", TOKEN)
+        .env("SNAPSHOTDB_SERVER", &f.url)
+        .env("SNAPSHOTDB_TOKEN", TOKEN)
         .args(["job", job.trim()])
         .output()
         .unwrap();
@@ -192,8 +192,8 @@ fn authenticated_jobs_execute_only_in_server_storage() {
     assert!(!f.base.join("client-must-not-exist").exists());
     let run = |args: &[&str]| {
         let out = cli(&f.base)
-            .env("ANYBRANCH_SERVER", &f.url)
-            .env("ANYBRANCH_TOKEN", TOKEN)
+            .env("SNAPSHOTDB_SERVER", &f.url)
+            .env("SNAPSHOTDB_TOKEN", TOKEN)
             .args(args)
             .output()
             .unwrap();
@@ -215,7 +215,7 @@ fn authenticated_jobs_execute_only_in_server_storage() {
             .unwrap()
     };
     run(&["settings", "fixture", "set", "branch_sql", "SELECT missing_initialization_function()"]);
-    let failed = cli(&f.base).env("ANYBRANCH_SERVER", &f.url).env("ANYBRANCH_TOKEN", TOKEN)
+    let failed = cli(&f.base).env("SNAPSHOTDB_SERVER", &f.url).env("SNAPSHOTDB_TOKEN", TOKEN)
         .args(["create", "failed-hook", "--from", "fixture", "--print-url"]).output().unwrap();
     assert!(!failed.status.success());
     assert!(failed.stdout.is_empty(), "failed initialization must not return a URL");
@@ -249,8 +249,8 @@ fn authenticated_jobs_execute_only_in_server_storage() {
         vec!["reset", "agent1"],
     ] {
         assert!(!cli(&f.base)
-            .env("ANYBRANCH_SERVER", &f.url)
-            .env("ANYBRANCH_TOKEN", TOKEN)
+            .env("SNAPSHOTDB_SERVER", &f.url)
+            .env("SNAPSHOTDB_TOKEN", TOKEN)
             .args(args)
             .output()
             .unwrap()
@@ -286,7 +286,7 @@ fn authenticated_jobs_execute_only_in_server_storage() {
     fs::remove_file(legacy_run.join("ready-v1")).unwrap();
     fs::write(legacy_run.join("branch_sql.done"), "").unwrap();
     for args in [["start", "legacy"], ["url", "legacy"]] {
-        assert!(!cli(&f.base).env("ANYBRANCH_SERVER", &f.url).env("ANYBRANCH_TOKEN", TOKEN)
+        assert!(!cli(&f.base).env("SNAPSHOTDB_SERVER", &f.url).env("SNAPSHOTDB_TOKEN", TOKEN)
             .args(args).output().unwrap().status.success());
     }
     assert!(ureq::post(legacy_url).send(r#"{"statements":[{"sql":"SELECT * FROM t"}]}"#).is_err());
@@ -295,9 +295,9 @@ fn authenticated_jobs_execute_only_in_server_storage() {
         run(&["rm", name]);
     }
     assert!(!f.base.join("client-must-not-exist").exists());
-    let duplicate = Command::new(env!("CARGO_BIN_EXE_anybranch"))
-        .env("ANYBRANCH_HOME", f.base.join("server"))
-        .env("ANYBRANCH_TOKEN", TOKEN)
+    let duplicate = Command::new(env!("CARGO_BIN_EXE_snapshotdb"))
+        .env("SNAPSHOTDB_HOME", f.base.join("server"))
+        .env("SNAPSHOTDB_TOKEN", TOKEN)
         .args([
             "serve",
             "--bind",
@@ -308,5 +308,5 @@ fn authenticated_jobs_execute_only_in_server_storage() {
         .output()
         .unwrap();
     assert!(!duplicate.status.success());
-    assert!(String::from_utf8_lossy(&duplicate.stderr).contains("another Anybranch server"));
+    assert!(String::from_utf8_lossy(&duplicate.stderr).contains("another SnapshotDB server"));
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Same-client fresh PostgreSQL CLI benchmark. Never compares setup failure with latency.
 
-Runs on the developer laptop. Anybranch database traffic uses an encrypted SSH
+Runs on the developer laptop. SnapshotDB database traffic uses an encrypted SSH
 tunnel; Ardent uses its returned TLS URL. Region and routing differ and are recorded.
 No ready pool, existing branch reuse, or retries inside a timed successful sample.
 """
@@ -23,28 +23,28 @@ import psycopg
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--anybranch',required=True)
+    p.add_argument('--snapshotdb',required=True)
     p.add_argument('--ardent',required=True)
-    p.add_argument('--provider',choices=['anybranch','ardent','both'],default='both')
+    p.add_argument('--provider',choices=['snapshotdb','ardent','both'],default='both')
     p.add_argument('--trials',type=int,default=20)
     p.add_argument('--ssh-config',required=True)
     p.add_argument('--ssh-socket',required=True)
-    p.add_argument('--host',default='anybranch-mumbai')
+    p.add_argument('--host',default='snapshotdb-mumbai')
     p.add_argument('--report',type=Path,required=True)
     p.add_argument('--minimum-bytes',type=int,default=10**12)
     p.add_argument('--probe-table',default='fresh994209c5_probe')
     p.add_argument('--ardent-connector-id',help='Refuse to benchmark a different active Ardent connector')
-    p.add_argument('--ardent-connector-name',default='anybranch-1tb-comparison')
+    p.add_argument('--ardent-connector-name',default='snapshotdb-1tb-comparison')
     args=p.parse_args()
     if not args.probe_table.replace('_','').isalnum():raise ValueError('invalid probe table')
-    env=dict(os.environ,ANYBRANCH_HOME=str(args.report.parent/'comparison-client-must-not-exist'))
-    env.pop('ANYBRANCH_INTERNAL',None)
+    env=dict(os.environ,SNAPSHOTDB_HOME=str(args.report.parent/'comparison-client-must-not-exist'))
+    env.pop('SNAPSHOTDB_INTERNAL',None)
     ssh=['ssh','-F',args.ssh_config,'-S',args.ssh_socket]
     forwards={}
     report={'state':'running','providers':{},'checks':[],
             'started_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            'client':'same developer laptop','anybranch_region':'ap-south-1','ardent_region':'us-east-1',
-            'routing':'Anybranch SSH versus Ardent native TLS; routing setup for new Anybranch branch included in elapsed time',
+            'client':'same developer laptop','snapshotdb_region':'ap-south-1','ardent_region':'us-east-1',
+            'routing':'SnapshotDB SSH versus Ardent native TLS; routing setup for new SnapshotDB branch included in elapsed time',
             'precreated_capacity':False,'minimum_source_bytes':args.minimum_bytes,
             'measurement':'CLI process launch -> branch URL -> new authenticated connection -> fresh marker and large-table read -> committed write and read-back'}
     def save():
@@ -61,11 +61,11 @@ def main():
             raise RuntimeError(command[0]+' failed; see private CLI log')
         return out.stdout.strip()
     def providers():
-        for provider in (['anybranch','ardent'] if args.provider=='both' else [args.provider]):
+        for provider in (['snapshotdb','ardent'] if args.provider=='both' else [args.provider]):
             if provider!='ardent' or not args.ardent_connector_id:
                 yield provider
                 continue
-            with (Path.home()/'.ardent/anybranch-benchmark.lock').open('a') as lock:
+            with (Path.home()/'.ardent/snapshotdb-benchmark.lock').open('a') as lock:
                 fcntl.flock(lock,fcntl.LOCK_EX)
                 config=json.loads((Path.home()/'.ardent/config.json').read_text())
                 previous=config.get('currentConnectorName')
@@ -77,7 +77,7 @@ def main():
                 finally:
                     if previous:command(args.ardent,'connector','switch',previous)
 
-    def ab(*c):return command(args.anybranch,*c)
+    def ab(*c):return command(args.snapshotdb,*c)
     def route(url):
         parts=urlsplit(url)
         port=parts.port
@@ -111,7 +111,7 @@ def main():
                     with db(replica_url) as replica:
                         row=replica.execute(f'SELECT value FROM {table} WHERE id=1').fetchone()
                     if row and row[0]==nonce:break
-                    if time.monotonic()>deadline:raise RuntimeError('Anybranch replication not caught up')
+                    if time.monotonic()>deadline:raise RuntimeError('SnapshotDB replication not caught up')
                     time.sleep(.1)
                 # Ardent does not expose direct replica SQL. Record a fixed source
                 # catch-up grace for both systems and verify the exact marker in
@@ -120,10 +120,10 @@ def main():
                 name=f'{prefix}-{provider}-{i}'
                 started=time.perf_counter()
                 try:
-                    if provider=='anybranch':url=ab('create',name,'--from','replica','--print-url')
+                    if provider=='snapshotdb':url=ab('create',name,'--from','replica','--print-url')
                     else:url=command(args.ardent,'branch','create',name,'--print-url')
                     url_ms=(time.perf_counter()-started)*1000
-                    if provider=='anybranch':url=route(url)
+                    if provider=='snapshotdb':url=route(url)
                     with db(url) as branch:
                         check(branch.execute(f'SELECT value FROM {table} WHERE id=1').fetchone()[0]==nonce,f'{provider} {i}: latest source marker')
                         check(branch.execute('SELECT md5(payload) FROM public.scale_data_0 WHERE id=1').fetchone()[0]==expected,f'{provider} {i}: large-table data')
@@ -143,12 +143,12 @@ def main():
                     data['trials'].append({'index':i,'success':False,'elapsed_ms':round((time.perf_counter()-started)*1000,3),'error':str(exc)})
                     data['state']='failed';raise
                 save();print(provider,json.dumps(data['trials'][-1]),flush=True)
-                if provider=='anybranch':ab('rm',name)
+                if provider=='snapshotdb':ab('rm',name)
                 else:command(args.ardent,'branch','delete',name)
             samples=sorted(t['read_write_ms'] for t in data['trials'])
             data['summary']={'n':len(samples),'p50_ms':statistics.median(samples),'p95_ms':samples[math.ceil(.95*len(samples))-1],'max_ms':max(samples),'all_under_6s':all(t<6000 for t in samples)}
             data['state']='passed'
-        check(not Path(env['ANYBRANCH_HOME']).exists(),'no local database copy')
+        check(not Path(env['SNAPSHOTDB_HOME']).exists(),'no local database copy')
         report['state']='passed'
     except Exception as exc:
         report.update(state='failed',error=str(exc));raise

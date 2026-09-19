@@ -1,12 +1,12 @@
 [Unit]
 Description=Prepared agent allocation latency on the retained 1 TB database
-After=anybranch-post-benchmark.service
-RequiresMountsFor=/srv/anybranch-tb /srv/anybranch-data
+After=snapshotdb-post-benchmark.service
+RequiresMountsFor=/srv/snapshotdb-tb /srv/snapshotdb-data
 
 [Service]
 Type=exec
-ExecStart=/srv/anybranch-data/latency-venv/bin/python /usr/local/lib/anybranch-tb-latency.py
-ExecStopPost=/usr/bin/python3 /usr/local/lib/anybranch-latency-finish.py /var/lib/anybranch-benchmark/agent-latency-report.json
+ExecStart=/srv/snapshotdb-data/latency-venv/bin/python /usr/local/lib/snapshotdb-tb-latency.py
+ExecStopPost=/usr/bin/python3 /usr/local/lib/snapshotdb-latency-finish.py /var/lib/snapshotdb-benchmark/agent-latency-report.json
 Restart=no
 UMask=0077
 KillMode=control-group

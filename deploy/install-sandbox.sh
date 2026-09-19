@@ -4,12 +4,12 @@
 set -euo pipefail
 apt-get install -y -qq bubblewrap
 if [ -f /proc/sys/kernel/apparmor_restrict_unprivileged_userns ] && command -v apparmor_parser >/dev/null; then
-  cat > /etc/apparmor.d/anybranch-bwrap <<'PROFILE'
+  cat > /etc/apparmor.d/snapshotdb-bwrap <<'PROFILE'
 abi <abi/4.0>,
 include <tunables/global>
-profile anybranch-bwrap /usr/bin/bwrap flags=(unconfined) {
+profile snapshotdb-bwrap /usr/bin/bwrap flags=(unconfined) {
   userns,
 }
 PROFILE
-  apparmor_parser -r /etc/apparmor.d/anybranch-bwrap
+  apparmor_parser -r /etc/apparmor.d/snapshotdb-bwrap
 fi

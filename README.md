@@ -1,22 +1,22 @@
-# anybranch
+# snapshotdb
 
 Branch your production database on your own server. The CLI sends requests; database files
 and database processes stay on the deployed server.
 
 ```sh
-export ANYBRANCH_SERVER=https://anybranch.example.com
-export ANYBRANCH_TOKEN='<your server access token>'
+export SNAPSHOTDB_SERVER=https://snapshotdb.example.com
+export SNAPSHOTDB_TOKEN='<your server access token>'
 
-anybranch preflight postgres 'postgresql://user:pass@db.example.com:5432/app'
+snapshotdb preflight postgres 'postgresql://user:pass@db.example.com:5432/app'
 #   ✓ connection (PostgreSQL 16.4)  ✓ is writer  ✓ wal level (actual: logical)  ...
 #   ✓ Preflight passed.
 
-anybranch clone prod 'postgresql://user:pass@db.example.com:5432/app'
+snapshotdb clone prod 'postgresql://user:pass@db.example.com:5432/app'
 # postgresql://you:<branch-password>@branches.internal:57340/app
 # prod replicates 41 tables from the source; initial copy continues in the background
 
-anybranch create feature-x --from prod --print-url
-# postgresql://anybranch_agent:<branch-password>@branches.internal:57375/app
+snapshotdb create feature-x --from prod --print-url
+# postgresql://snapshotdb_agent:<branch-password>@branches.internal:57375/app
 ```
 
 `prod` is a replica on the deployed server kept in sync with production, rows and schema changes alike, by the
@@ -43,43 +43,43 @@ For a customer-owned AWS deployment, see the [BYOC appliance and deployment temp
 The [strict comparison protocol](docs/strict-comparison.md) separates measured branch
 latency from unverified infrastructure and product parity.
 The client/server change is unreleased; older v0.3.0 release binaries still use local storage.
-Without `ANYBRANCH_SERVER`, the client fails; it never falls back to a local database copy.
-The client only needs the Anybranch binary. Engine binaries and copy-on-write storage belong
+Without `SNAPSHOTDB_SERVER`, the client fails; it never falls back to a local database copy.
+The client only needs the SnapshotDB binary. Engine binaries and copy-on-write storage belong
 on the server. PostgreSQL, MySQL and MongoDB agent branches require Linux with bubblewrap;
 startup fails if the sandbox is unavailable. SQLite remains available on other platforms.
-`ANYBRANCH_HOME` controls **server** storage, not client storage.
+`SNAPSHOTDB_HOME` controls **server** storage, not client storage.
 
 Requests become authenticated server jobs. The CLI waits and prints the result; `--detach`
-returns a job ID immediately, and `anybranch job <id>` reconnects to it. A lost client
+returns a job ID immediately, and `snapshotdb job <id>` reconnects to it. A lost client
 connection does not cancel the server operation. PostgreSQL's initial table copy continues
 after the clone job returns; use `status` to monitor it.
 
 ## Commands
 
 ```
-anybranch clone <name> <connection-string>                  infer the engine and create a server-side replica
-anybranch job <id>                                         wait for an existing server job
-anybranch preflight <postgres|mysql|mongodb> <url> [--schemas a,b] [--format json]   check a source; creates nothing (exit 2 on failure)
-anybranch import <postgres|mysql|sqlite|mongodb> <name> <datadir|file|--new>
-anybranch sync   <postgres|mysql|mongodb> <name> <url> [--schemas a,b] [--fix-replica-identity]   root kept in sync with production
-anybranch create <name> --from <parent> [--print-url] [--format json]
-anybranch info   [name] [--print-url] [--format json]      details of a branch (default: current)
-anybranch url    [name]
-anybranch switch <name>                                    make a branch current
-anybranch list   [--format json]
-anybranch status <name> [--format json]                    replication state of a synced root
-anybranch repair <name>                                    resume a paused replica (skip a poisoned transaction, or reconcile schema)
-anybranch reconcile <name>                                 add columns/tables the source gained (for sources without the event trigger)
-anybranch reset  <name>                                    re-clone from parent
-anybranch settings <root> [set <key> <value> | remove <key>]   keys: default_db, branch_sql (@file or SQL), source
-anybranch lock|unlock <name>                               protect a branch from rm
-anybranch start|stop|rm <name>
+snapshotdb clone <name> <connection-string>                  infer the engine and create a server-side replica
+snapshotdb job <id>                                         wait for an existing server job
+snapshotdb preflight <postgres|mysql|mongodb> <url> [--schemas a,b] [--format json]   check a source; creates nothing (exit 2 on failure)
+snapshotdb import <postgres|mysql|sqlite|mongodb> <name> <datadir|file|--new>
+snapshotdb sync   <postgres|mysql|mongodb> <name> <url> [--schemas a,b] [--fix-replica-identity]   root kept in sync with production
+snapshotdb create <name> --from <parent> [--print-url] [--format json]
+snapshotdb info   [name] [--print-url] [--format json]      details of a branch (default: current)
+snapshotdb url    [name]
+snapshotdb switch <name>                                    make a branch current
+snapshotdb list   [--format json]
+snapshotdb status <name> [--format json]                    replication state of a synced root
+snapshotdb repair <name>                                    resume a paused replica (skip a poisoned transaction, or reconcile schema)
+snapshotdb reconcile <name>                                 add columns/tables the source gained (for sources without the event trigger)
+snapshotdb reset  <name>                                    re-clone from parent
+snapshotdb settings <root> [set <key> <value> | remove <key>]   keys: default_db, branch_sql (@file or SQL), source
+snapshotdb lock|unlock <name>                               protect a branch from rm
+snapshotdb start|stop|rm <name>
 ```
 
 `import` makes a root from a stopped data directory, a SQLite file, or `--new` on the server.
 File paths, including `@file` SQL hooks, refer to the server filesystem. `sync` makes a
 root that replicates from a live database. Both are branched the same way. `create` and `sync`
-make the new branch current, so `anybranch info --print-url` needs no name.
+make the new branch current, so `snapshotdb info --print-url` needs no name.
 
 ## Engines
 
@@ -137,14 +137,14 @@ owner). Tables without a PRIMARY KEY are skipped with the `ALTER TABLE ... REPLI
 FULL` printed, because publishing them would make UPDATE/DELETE fail on production itself;
 `--fix-replica-identity` applies those statements for you.
 
-On the source anybranch creates, all named `anybranch_<name>`: a publication, a replication
+On the source snapshotdb creates, all named `snapshotdb_<name>`: a publication, a replication
 slot, a schema holding a `ddl` log table, and an event trigger that writes each DDL statement
 into that table. The table is replicated and a trigger on the replica replays it, so
 migrations on production appear on the replica and new tables join replication on the next
 `status` or `create`. The event trigger swallows its own errors, so it can never fail your
 DDL; creating it needs superuser (RDS: `rds_superuser`; Supabase's `postgres` role can too).
 Without it rows still replicate, `status` says schema changes are not tracked, and after a
-migration `anybranch reconcile <name>` adds the columns and new tables the source gained.
+migration `snapshotdb reconcile <name>` adds the columns and new tables the source gained.
 A row arriving with a column the replica lacks pauses the stream, and `repair` runs the
 reconcile and resumes. Tables the role cannot read are left out of the schema copy and the
 publication. `rm` removes everything it created.
@@ -178,11 +178,11 @@ not collide. A branch never contacts production.
 Per-root settings shape every new branch:
 
 ```sh
-anybranch settings prod set default_db app                              # database name in branch URLs
-anybranch settings prod set branch_sql @anonymize.sql --hook 10-anonymize  # run once on every new branch, never on the source
-anybranch settings prod set branch_sql @fixtures.sql  --hook 20-fixtures   # several hooks run in name order
-anybranch settings prod set source 'postgresql://...'                   # rotate credentials without re-syncing
-anybranch lock prod                                                     # rm refuses until unlock
+snapshotdb settings prod set default_db app                              # database name in branch URLs
+snapshotdb settings prod set branch_sql @anonymize.sql --hook 10-anonymize  # run once on every new branch, never on the source
+snapshotdb settings prod set branch_sql @fixtures.sql  --hook 20-fixtures   # several hooks run in name order
+snapshotdb settings prod set source 'postgresql://...'                   # rotate credentials without re-syncing
+snapshotdb lock prod                                                     # rm refuses until unlock
 ```
 
 Re-running `create` with the same name and parent returns the existing branch and URL, so
@@ -191,32 +191,32 @@ failed while running, 2 the command was wrong or preflight did not pass; with `-
 errors are printed as `{"error": "..."}`. Client TLS for the source goes in the URL itself
 (`?sslmode=verify-full&sslrootcert=...&sslcert=...&sslkey=...` for Postgres).
 
-Idle branches stop their engine after the server's `ANYBRANCH_IDLE_MINUTES` (default 5, 0 disables) and
+Idle branches stop their engine after the server's `SNAPSHOTDB_IDLE_MINUTES` (default 5, 0 disables) and
 resume when a client connects; the proxy on the branch's port stays. Synced roots never
 suspend. Starting the server after a reboot restores proxies and synced roots.
 
 ## Agents and CI
 
-Give an agent a branch, not production. The skill in `skills/anybranch/SKILL.md` teaches
+Give an agent a branch, not production. The skill in `skills/snapshotdb/SKILL.md` teaches
 Claude Code or Cursor the rules; install it with:
 
 ```sh
-mkdir -p .claude/skills/anybranch && curl -fsSL https://raw.githubusercontent.com/GitHoobar/anybranch/main/skills/anybranch/SKILL.md -o .claude/skills/anybranch/SKILL.md
+mkdir -p .claude/skills/snapshotdb && curl -fsSL https://raw.githubusercontent.com/GitHoobar/snapshotdb/main/skills/snapshotdb/SKILL.md -o .claude/skills/snapshotdb/SKILL.md
 ```
 
 In CI, a fresh database per job:
 
 ```sh
-DATABASE_URL="$(anybranch create "pr-$PR" --from prod --print-url)"
+DATABASE_URL="$(snapshotdb create "pr-$PR" --from prod --print-url)"
 [ -n "$DATABASE_URL" ] || exit 1
 # ... migrate and test ...
-anybranch rm "pr-$PR"
+snapshotdb rm "pr-$PR"
 ```
 
 ## How it works
 
 ```
-<server ANYBRANCH_HOME>/<name>/
+<server SNAPSHOTDB_HOME>/<name>/
   engine       postgres | mysql | sqlite | mongodb
   parent       optional
   source       optional production URL (mode 0600); makes this a synced root
@@ -235,7 +235,7 @@ token; expose it through HTTPS or an SSH tunnel. See [deployment](docs/server.md
 ## Build and test
 
 ```sh
-cargo build --release   # target/release/anybranch
+cargo build --release   # target/release/snapshotdb
 cargo test
 python3 -m unittest discover -s scripts -p 'test_*.py'
 ./e2e.sh                # fake production -> preflight -> sync -> schema change -> repair -> branches -> teardown
@@ -263,7 +263,7 @@ commands through its API.
 - Jobs serialize engine commands. Queued/running jobs are marked interrupted after a server
   restart and are not automatically retried. Inspect branch state before resubmitting.
 - Managed roots expose an administrative URL for the deployment operator. Child URLs use
-  `anybranch_agent`: PostgreSQL object ownership without superuser/server-file roles,
+  `snapshotdb_agent`: PostgreSQL object ownership without superuser/server-file roles,
   MySQL privileges on application databases, and MongoDB read/write and database-admin
   roles without user administration. Maintenance credentials stay in private server files.
   PostgreSQL branch ownership is reassigned for migrations; exact source-role/RLS fidelity

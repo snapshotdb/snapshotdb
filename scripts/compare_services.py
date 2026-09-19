@@ -26,12 +26,12 @@ def fairness_gaps(manifest):
               "storage_mib_per_second", "postgres_version", "durability",
               "background_load", "prepared_capacity", "transport")
     for field in fields:
-        values = [manifest.get(p, {}).get(field) for p in ("anybranch", "ardent")]
+        values = [manifest.get(p, {}).get(field) for p in ("snapshotdb", "ardent")]
         if any(v is None or v == "unknown" or v == "" for v in values):
             gaps.append(field + ": unknown")
         elif values[0] != values[1]:
             gaps.append(field + ": differs")
-    for p in ("anybranch", "ardent"):
+    for p in ("snapshotdb", "ardent"):
         if not manifest.get(p, {}).get("evidence"):
             gaps.append(p + ": configuration evidence missing")
     return gaps
@@ -63,7 +63,7 @@ class API:
     def wait(self, provider, submitted):
         deadline = time.monotonic() + self.timeout
         while time.monotonic() < deadline:
-            if provider == 'anybranch':
+            if provider == 'snapshotdb':
                 result = self.request('/v1/jobs/' + submitted['id'])
                 if result['state'] == 'done':
                     if result['exit_code'] != 0:
@@ -82,7 +82,7 @@ class API:
 def main():
     import psycopg
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--anybranch-api', default='http://127.0.0.1:7432')
+    p.add_argument('--snapshotdb-api', default='http://127.0.0.1:7432')
     p.add_argument('--root', required=True)
     p.add_argument('--ardent-connector', required=True)
     p.add_argument('--manifest', type=Path, required=True)
@@ -100,7 +100,7 @@ def main():
     gaps = fairness_gaps(manifest)
     if a.require_infrastructure_parity and gaps:
         p.error('Infrastructure parity not established: ' + '; '.join(gaps))
-    apis = {'anybranch': API(a.anybranch_api, os.environ['ANYBRANCH_TOKEN'], a.poll, a.timeout),
+    apis = {'snapshotdb': API(a.snapshotdb_api, os.environ['SNAPSHOTDB_TOKEN'], a.poll, a.timeout),
             'ardent': API('https://api.tryardent.com', os.environ['ARDENT_TOKEN'], a.poll, a.timeout)}
     report = dict(started_at=datetime.datetime.now(datetime.timezone.utc).isoformat(),
         state='running', mode='fresh', manifest=manifest, infrastructure_gaps=gaps,
@@ -148,7 +148,7 @@ def main():
     save()
     rng = random.Random(a.seed)
     for index in range(a.trials):
-        order = ['anybranch', 'ardent']
+        order = ['snapshotdb', 'ardent']
         rng.shuffle(order)
         for provider in order:
             api = apis[provider]
@@ -158,13 +158,13 @@ def main():
             branch_id = None
             started = time.perf_counter()
             try:
-                if provider == 'anybranch':
+                if provider == 'snapshotdb':
                     submitted = api.request('/v1/commands', ['create', name, '--from', a.root, '--print-url'])
                 else:
                     submitted = api.request('/v1/branch/create', dict(connector_id=a.ardent_connector, service_type='postgres', name=name))
                 row['operation_id'] = submitted.get('operation_id') or submitted.get('id')
                 result = api.wait(provider, submitted)
-                if provider == 'anybranch':
+                if provider == 'snapshotdb':
                     url = result['stdout'].strip()
                 else:
                     branch = result.get('branch') or result
@@ -202,7 +202,7 @@ def main():
                 report['cleanup'].append(cleanup)
                 try:
                     deletion_start = time.perf_counter()
-                    if provider == 'anybranch':
+                    if provider == 'snapshotdb':
                         submitted = api.request('/v1/commands', ['rm', name])
                     elif branch_id:
                         submitted = api.request('/v1/cli/branches/' + branch_id, method='DELETE')

@@ -1,6 +1,6 @@
 {
   "client": {"region": "us-east-1", "host": "record-instance-id"},
-  "anybranch": {
+  "snapshotdb": {
     "region": "us-east-1",
     "availability_zone": null,
     "instance_type": "m6i.xlarge",

@@ -10,8 +10,8 @@ jobs:
         run: |
           sudo apt-get install -y -qq bubblewrap btrfs-progs >/dev/null
           truncate -s 4G /tmp/btrfs.img && sudo mkfs.btrfs -q /tmp/btrfs.img
-          sudo mkdir -p /mnt/anybranch && sudo mount -o loop /tmp/btrfs.img /mnt/anybranch
-          sudo chown "$USER" /mnt/anybranch
+          sudo mkdir -p /mnt/snapshotdb && sudo mount -o loop /tmp/btrfs.img /mnt/snapshotdb
+          sudo chown "$USER" /mnt/snapshotdb
       - name: MongoDB server, shell, and tools
         run: |
           curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc | sudo gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg
@@ -27,8 +27,8 @@ jobs:
           sudo apparmor_parser -R /etc/apparmor.d/usr.sbin.mysqld 2>/dev/null || true
       - name: End-to-end
         run: |
-          TMPDIR=/mnt/anybranch cargo test --locked
+          TMPDIR=/mnt/snapshotdb cargo test --locked
           python3 -m unittest discover -s scripts -p 'test_*.py'
-          mkdir /mnt/anybranch/home
-          ln -s /mnt/anybranch/home /tmp/anybranch-e2e-home
-          ANYBRANCH_HOME=/tmp/anybranch-e2e-home ./e2e.sh
+          mkdir /mnt/snapshotdb/home
+          ln -s /mnt/snapshotdb/home /tmp/snapshotdb-e2e-home
+          SNAPSHOTDB_HOME=/tmp/snapshotdb-e2e-home ./e2e.sh

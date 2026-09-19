@@ -1,4 +1,4 @@
-//! `anybranch preflight`: can this source be branched safely? Creates nothing, stores
+//! `snapshotdb preflight`: can this source be branched safely? Creates nothing, stores
 //! nothing. `sync` runs the same checks first and refuses on any failure.
 use std::fmt::Write as _;
 

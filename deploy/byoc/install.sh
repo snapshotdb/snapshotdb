@@ -28,23 +28,23 @@ if [ "$profile" = all ]; then
   apt-get install -y -qq mongodb-org-server mongodb-mongosh mongodb-database-tools
   systemctl disable --now mongod
 fi
-id anybranch >/dev/null 2>&1 || useradd --create-home --shell /bin/bash anybranch
-install -d -o anybranch -g anybranch /opt/anybranch-src
-cp -a "$repo/Cargo.toml" "$repo/Cargo.lock" "$repo/src" /opt/anybranch-src/
-curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o /tmp/anybranch-rustup.sh
-runuser -u anybranch -- sh /tmp/anybranch-rustup.sh -y --profile minimal
-rm /tmp/anybranch-rustup.sh
-chown -R anybranch:anybranch /opt/anybranch-src
-runuser -u anybranch -- bash -c 'cd /opt/anybranch-src; /home/anybranch/.cargo/bin/cargo build --release --locked -j 2'
-install -m 755 /opt/anybranch-src/target/release/anybranch /usr/local/bin/anybranch
-install -m 755 "$here/initialize.sh" /usr/local/sbin/anybranch-initialize
-install -m 644 "$here/anybranch.service" /etc/systemd/system/anybranch.service
-install -d /usr/share/anybranch
-sha256sum /usr/local/bin/anybranch > /usr/share/anybranch/binary.sha256
-printf '%s\n' "$profile" > /usr/share/anybranch/engine-profile
-dpkg-query -W > /usr/share/anybranch/packages.txt
+id snapshotdb >/dev/null 2>&1 || useradd --create-home --shell /bin/bash snapshotdb
+install -d -o snapshotdb -g snapshotdb /opt/snapshotdb-src
+cp -a "$repo/Cargo.toml" "$repo/Cargo.lock" "$repo/src" /opt/snapshotdb-src/
+curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs -o /tmp/snapshotdb-rustup.sh
+runuser -u snapshotdb -- sh /tmp/snapshotdb-rustup.sh -y --profile minimal
+rm /tmp/snapshotdb-rustup.sh
+chown -R snapshotdb:snapshotdb /opt/snapshotdb-src
+runuser -u snapshotdb -- bash -c 'cd /opt/snapshotdb-src; /home/snapshotdb/.cargo/bin/cargo build --release --locked -j 2'
+install -m 755 /opt/snapshotdb-src/target/release/snapshotdb /usr/local/bin/snapshotdb
+install -m 755 "$here/initialize.sh" /usr/local/sbin/snapshotdb-initialize
+install -m 644 "$here/snapshotdb.service" /etc/systemd/system/snapshotdb.service
+install -d /usr/share/snapshotdb
+sha256sum /usr/local/bin/snapshotdb > /usr/share/snapshotdb/binary.sha256
+printf '%s\n' "$profile" > /usr/share/snapshotdb/engine-profile
+dpkg-query -W > /usr/share/snapshotdb/packages.txt
 systemctl daemon-reload
 # Deliberately disabled until a customer explicitly initializes their data volume.
-systemctl disable anybranch
-test ! -e /etc/anybranch.env
-test ! -e /srv/anybranch
+systemctl disable snapshotdb
+test ! -e /etc/snapshotdb.env
+test ! -e /srv/snapshotdb

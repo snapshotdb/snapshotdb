@@ -1,7 +1,7 @@
 {
   "date": "2026-09-13",
   "scope": "controlled live checks on owned synthetic benchmark infrastructure",
-  "anybranch": {
+  "snapshotdb": {
     "connection": "generated branch admin credentials over TCP",
     "role_superuser": true,
     "sibling_mode_0600_canary_readable": true,

@@ -3,7 +3,7 @@
   "minimum_bytes": 10000000000,
   "timings_seconds": {
     "generation": 72.16041576999851,
-    "anybranch_initial_copy": 87.64385879800102
+    "snapshotdb_initial_copy": 87.64385879800102
   },
   "checks": [
     "real temporary wal2json slot succeeded",

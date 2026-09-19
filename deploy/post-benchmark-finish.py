@@ -6,7 +6,7 @@ import os
 import sys
 from pathlib import Path
 
-base = Path(sys.argv[1]) if len(sys.argv) > 1 else Path('/var/lib/anybranch-benchmark')
+base = Path(sys.argv[1]) if len(sys.argv) > 1 else Path('/var/lib/snapshotdb-benchmark')
 path = base / 'post-test-report.json'
 report = json.loads(path.read_text()) if path.exists() else {'checks': [], 'failures': []}
 result = os.environ.get('SERVICE_RESULT', 'unknown')

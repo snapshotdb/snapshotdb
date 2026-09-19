@@ -1,11 +1,11 @@
-export const metadata = { title: "Connect a database — anybranch docs" };
+export const metadata = { title: "Connect a database — snapshotdb docs" };
 
 export default function Page() {
   return (
     <>
       <span className="eyebrow lbl">Connect a database</span>
       <h1>Connect a database</h1>
-      <p className="lead">A source is a production database anybranch keeps a live replica of. Run <code>preflight</code>, then <code>clone</code>/<code>sync</code>. Both are branched the same way.</p>
+      <p className="lead">A source is a production database snapshotdb keeps a live replica of. Run <code>preflight</code>, then <code>clone</code>/<code>sync</code>. Both are branched the same way.</p>
 
       <h2>Two ways to make a root</h2>
       <ul>

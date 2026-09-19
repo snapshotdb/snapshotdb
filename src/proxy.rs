@@ -21,11 +21,11 @@ struct Activity {
 }
 
 pub fn idle_minutes() -> u64 {
-    env::var("ANYBRANCH_IDLE_MINUTES").ok().and_then(|v| v.parse().ok()).unwrap_or(5)
+    env::var("SNAPSHOTDB_IDLE_MINUTES").ok().and_then(|v| v.parse().ok()).unwrap_or(5)
 }
 
 pub fn port_free(port: u16) -> bool {
-    let bind = env::var("ANYBRANCH_DB_BIND").unwrap_or_else(|_| "127.0.0.1".into());
+    let bind = env::var("SNAPSHOTDB_DB_BIND").unwrap_or_else(|_| "127.0.0.1".into());
     TcpListener::bind((bind.as_str(), port)).is_ok()
 }
 
@@ -33,7 +33,7 @@ pub fn serve(name: &str) -> R<()> {
     let b = Branch::load(name)?;
     if b.engine == crate::Engine::Sqlite { return crate::sqlite::serve(&b); }
     let port = b.port().ok_or("no public port allocated")?;
-    let bind = env::var("ANYBRANCH_DB_BIND").unwrap_or_else(|_| "127.0.0.1".into());
+    let bind = env::var("SNAPSHOTDB_DB_BIND").unwrap_or_else(|_| "127.0.0.1".into());
     let listener = TcpListener::bind((bind.as_str(), port)).map_err(|e| format!("bind {bind}:{port}: {e}"))?;
     let activity = Arc::new(Activity { open: AtomicUsize::new(0), last: Mutex::new(Instant::now()), start: Mutex::new(()) });
 

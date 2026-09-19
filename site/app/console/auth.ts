@@ -8,11 +8,11 @@ export type SessionUser = {
   login: string;
   name?: string;
   avatar?: string;
-  provider: "github" | "demo";
+  provider: "github";
 };
 
 function secret(): string {
-  return process.env.AUTH_SECRET || "anybranch-dev-insecure-secret-change-in-production";
+  return process.env.AUTH_SECRET || "snapshotdb-dev-insecure-secret-change-in-production";
 }
 
 function hmac(payload: string): string {
@@ -43,8 +43,4 @@ export function verifySession(token: string | undefined | null): SessionUser | n
 export async function getSession(): Promise<SessionUser | null> {
   const jar = await cookies();
   return verifySession(jar.get(SESSION_COOKIE)?.value);
-}
-
-export function githubConfigured(): boolean {
-  return Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET);
 }

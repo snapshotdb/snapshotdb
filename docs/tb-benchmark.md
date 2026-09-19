@@ -15,8 +15,8 @@ See [current branch latency results](latency-results.md) and the
 | CPU / memory | 16 vCPUs / 32 GiB |
 | Temporary benchmark volume | `vol-03e3c3899559d783e`, 3,072 GiB encrypted gp3 |
 | Volume performance | 6,000 IOPS, 500 MiB/s |
-| Filesystem | Btrfs without compression, `/srv/anybranch-tb` |
-| Run directory | `/srv/anybranch-tb/scale-xrgarhz2` |
+| Filesystem | Btrfs without compression, `/srv/snapshotdb-tb` |
+| Run directory | `/srv/snapshotdb-tb/scale-xrgarhz2` |
 | Existing demo | Preserved on its original 32 GiB volume |
 
 The user requested retention: **keep the test databases and extra disk after the run**.
@@ -51,20 +51,20 @@ guarantee. The sample is recorded in `.local/aws-mumbai/tb-speed-up-report.json`
 From this checkout:
 
 ```sh
-ssh -F .local/aws-mumbai/ssh-config anybranch-mumbai \
-  'sudo cat /var/lib/anybranch-benchmark/progress.json'
+ssh -F .local/aws-mumbai/ssh-config snapshotdb-mumbai \
+  'sudo cat /var/lib/snapshotdb-benchmark/progress.json'
 ```
 
 On EC2:
 
 ```sh
-sudo systemctl status anybranch-benchmark-1tb
-sudo tail -n 20 /var/lib/anybranch-benchmark/benchmark.log
-sudo cat /var/lib/anybranch-benchmark/progress.json
+sudo systemctl status snapshotdb-benchmark-1tb
+sudo tail -n 20 /var/lib/snapshotdb-benchmark/benchmark.log
+sudo cat /var/lib/snapshotdb-benchmark/progress.json
 ```
 
 The wrapper stores progress, logs, and the final `report.json` under
-`/var/lib/anybranch-benchmark`, outside the large test volume. Execution continues if
+`/var/lib/snapshotdb-benchmark`, outside the large test volume. Execution continues if
 SSH disconnects or the laptop sleeps. A separate read-only laptop process mirrors
 progress to `.local/aws-mumbai/tb-progress.json` while the laptop is available and
 copies the final report to `.local/aws-mumbai/tb-report.json` when it observes completion.
@@ -79,7 +79,7 @@ A failed run is preserved for investigation.
 ## Automatic checks after the benchmark
 
 After the scale benchmark passes, the completion hook starts the retained service and
-queues `anybranch-post-benchmark.service` without waiting inside the shutdown hook.
+queues `snapshotdb-post-benchmark.service` without waiting inside the shutdown hook.
 No further user prompt is needed. The follow-up stage:
 
 - Checks authentication and the four retained databases after service handoff.
@@ -93,15 +93,15 @@ No further user prompt is needed. The follow-up stage:
   SQLite branching is covered by Rust tests. Temporary directories use Btrfs.
 
 The stage has a six-hour runtime limit. Its durable report is
-`/var/lib/anybranch-benchmark/post-test-report.json`; private command output is in
+`/var/lib/snapshotdb-benchmark/post-test-report.json`; private command output is in
 `post-test-report.log`. The progress file's `passed` field covers the core benchmark;
 **only `all_tests_passed: true` confirms that the follow-up stage also passed**.
 Interrupted or failed post-test services are marked failed explicitly. The laptop
 monitor also mirrors the final follow-up report to `.local/aws-mumbai/tb-post-test-report.json`.
 
 ```sh
-sudo systemctl status anybranch-post-benchmark
-sudo cat /var/lib/anybranch-benchmark/post-test-report.json
+sudo systemctl status snapshotdb-post-benchmark
+sudo cat /var/lib/snapshotdb-benchmark/post-test-report.json
 ```
 
 The automation was validated on a separate small fixture: 45 retained-database checks,
@@ -113,19 +113,19 @@ all tests passed. The subsequent retained 1 TB run passed 45 checks, followed by
 
 ## Use the retained databases after success
 
-After a successful run, `anybranch-tb.service` starts automatically and is enabled at
-boot. It uses the retained run directory and a new API token from `/etc/anybranch-tb.env`.
+After a successful run, `snapshotdb-tb.service` starts automatically and is enabled at
+boot. It uses the retained run directory and a new API token from `/etc/snapshotdb-tb.env`.
 The existing demo service remains separate. The retained API binds server loopback
 port `7433`; its database proxies also bind loopback.
 
 ```sh
-sudo systemctl status anybranch-tb
-sudo -u anybranch bash -c 'set -a; source /etc/anybranch-tb.env; export ANYBRANCH_SERVER=http://127.0.0.1:7433; anybranch list'
+sudo systemctl status snapshotdb-tb
+sudo -u snapshotdb bash -c 'set -a; source /etc/snapshotdb-tb.env; export SNAPSHOTDB_SERVER=http://127.0.0.1:7433; snapshotdb list'
 ```
 
 The expected retained databases are `source`, `replica`, `branch-a`, and `branch-b`.
 Use SSH forwarding for laptop access. Credentials remain private; do not publish logs
-or `/etc/anybranch-tb.env`.
+or `/etc/snapshotdb-tb.env`.
 
 ## Cost and lifecycle
 

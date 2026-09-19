@@ -26,7 +26,7 @@
     103.62,
     105.35
   ],
-  "retained_service": "anybranch-tb-agent-server",
-  "retained_home": "/srv/anybranch-tb/agent-latency",
+  "retained_service": "snapshotdb-tb-agent-server",
+  "retained_home": "/srv/snapshotdb-tb/agent-latency",
   "service_result": "success"
 }

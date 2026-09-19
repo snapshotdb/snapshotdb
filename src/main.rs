@@ -1,6 +1,6 @@
-//! anybranch: copy-on-write branches of any local database, synced from production.
+//! snapshotdb: copy-on-write branches of any local database, synced from production.
 //!
-//! A branch is a directory `$ANYBRANCH_HOME/<name>/` holding `engine`, optional `parent`,
+//! A branch is a directory `$SNAPSHOTDB_HOME/<name>/` holding `engine`, optional `parent`,
 //! optional `source` (a production URL this root replicates from), per-root settings
 //! (`default_db`, `branch_sql`, `lock`), `data/` (what the engine sees; this is what gets
 //! cloned) and `run/` (ports, pids, sockets, logs, tailer state; never cloned).
@@ -14,6 +14,7 @@ mod remote;
 mod pool;
 mod sqlite;
 mod sandbox;
+mod login;
 
 use std::{
     collections::HashMap,
@@ -27,28 +28,29 @@ use std::{
 };
 
 const USAGE: &str = "usage:
-  anybranch serve --bind <address:port> --public-host <hostname> [--db-bind <ip>]   deploy the database server
-  anybranch clone <name> <connection-string>                  create a replica on the deployed server
-  anybranch job <id>                                         wait for a previously submitted server job
-  anybranch preflight <postgres|mysql|mongodb> <url> [--schemas a,b] [--format json]   check a source; creates nothing (exit 2 on failure)
-  anybranch import <postgres|mysql|sqlite|mongodb> <name> <datadir|file|--new>
-  anybranch sync   <postgres|mysql|mongodb> <name> <url> [--schemas a,b] [--fix-replica-identity]   root kept in sync with production
-  anybranch create <name> --from <parent> [--print-url] [--format json]
-  anybranch prepare <snapshot> --from <parent> --count <1-32>   freeze a snapshot and fill its ready branch pool
-  anybranch info   [name] [--print-url] [--format json]      details of a branch (default: current)
-  anybranch url    [name]
-  anybranch switch <name>                                    make a branch current
-  anybranch list   [--format json]
-  anybranch status <name> [--format json]                    replication state of a synced root
-  anybranch repair <name>                                    resume a paused replica (skip a poisoned transaction, or reconcile schema)
-  anybranch reconcile <name>                                 add columns/tables the source gained (for sources without the event trigger)
-  anybranch reset  <name>                                    re-clone from parent
-  anybranch settings <root> [set <key> <value> [--hook name] | remove <key> [--hook name]]
+  snapshotdb serve --bind <address:port> --public-host <hostname> [--db-bind <ip>]   deploy the database server
+  snapshotdb clone <name> <connection-string>                  create a replica on the deployed server
+  snapshotdb job <id>                                         wait for a previously submitted server job
+  snapshotdb login [--web <url>]                              sign in with GitHub in the browser
+  snapshotdb preflight <postgres|mysql|mongodb> <url> [--schemas a,b] [--format json]   check a source; creates nothing (exit 2 on failure)
+  snapshotdb import <postgres|mysql|sqlite|mongodb> <name> <datadir|file|--new>
+  snapshotdb sync   <postgres|mysql|mongodb> <name> <url> [--schemas a,b] [--fix-replica-identity]   root kept in sync with production
+  snapshotdb create <name> --from <parent> [--print-url] [--format json]
+  snapshotdb prepare <snapshot> --from <parent> --count <1-32>   freeze a snapshot and fill its ready branch pool
+  snapshotdb info   [name] [--print-url] [--format json]      details of a branch (default: current)
+  snapshotdb url    [name]
+  snapshotdb switch <name>                                    make a branch current
+  snapshotdb list   [--format json]
+  snapshotdb status <name> [--format json]                    replication state of a synced root
+  snapshotdb repair <name>                                    resume a paused replica (skip a poisoned transaction, or reconcile schema)
+  snapshotdb reconcile <name>                                 add columns/tables the source gained (for sources without the event trigger)
+  snapshotdb reset  <name>                                    re-clone from parent
+  snapshotdb settings <root> [set <key> <value> [--hook name] | remove <key> [--hook name]]
                                                              keys: default_db, branch_sql (@file or SQL; several via --hook, run in name order), source
-  anybranch lock|unlock <name>                               protect a branch from rm
-  anybranch start|stop|rm <name>
-client env: ANYBRANCH_SERVER (HTTPS API URL)   ANYBRANCH_TOKEN (server access token)
-server env: ANYBRANCH_HOME (server storage)   ANYBRANCH_TOKEN   ANYBRANCH_IDLE_MINUTES
+  snapshotdb lock|unlock <name>                               protect a branch from rm
+  snapshotdb start|stop|rm <name>
+client env: SNAPSHOTDB_SERVER (HTTPS API URL)   SNAPSHOTDB_TOKEN (server access token)
+server env: SNAPSHOTDB_HOME (server storage)   SNAPSHOTDB_TOKEN   SNAPSHOTDB_IDLE_MINUTES
 All database commands execute on the deployed server. --detach returns a server job ID.";
 
 pub type R<T> = Result<T, String>;
@@ -93,13 +95,21 @@ impl Args {
 }
 
 fn main() {
+    if env::args().nth(1).as_deref() == Some("login") {
+        let args: Vec<String> = env::args().skip(2).collect();
+        if let Err(e) = login::run(&args) {
+            eprintln!("error: {e}");
+            process::exit(1);
+        }
+        return;
+    }
     let raw = match remote::route(env::args().skip(1).collect()) {
         Ok(Some(raw)) => raw,
         Ok(None) => return,
         Err(e) => { eprintln!("error: {e}"); process::exit(1); }
     };
     // Also serialize workers across a control-server restart with a surviving child.
-    let _worker_lock = if env::var("ANYBRANCH_INTERNAL").as_deref() == Ok("1")
+    let _worker_lock = if env::var("SNAPSHOTDB_INTERNAL").as_deref() == Ok("1")
         && raw.first().map(String::as_str) != Some("_proxy") {
         match remote::worker_lock(false) {
             Ok(lock) => Some(lock),
@@ -108,7 +118,7 @@ fn main() {
     } else { None };
     let a = Args::parse(raw);
     if a.flag("version") {
-        println!("anybranch {}", env!("CARGO_PKG_VERSION"));
+        println!("snapshotdb {}", env!("CARGO_PKG_VERSION"));
         return;
     }
     if a.flag("help") || a.pos.is_empty() {
@@ -120,7 +130,7 @@ fn main() {
     let current = |name: Option<&&str>| -> R<Branch> {
         match name {
             Some(n) => Branch::load(n),
-            None => Branch::load(&fs::read_to_string(home().join(".current")).map_err(|_| "no current branch; pass a name or run: anybranch switch <name>")?),
+            None => Branch::load(&fs::read_to_string(home().join(".current")).map_err(|_| "no current branch; pass a name or run: snapshotdb switch <name>")?),
         }
     };
     let result: R<()> = match p.as_slice() {
@@ -239,9 +249,9 @@ pub struct Branch {
 }
 
 pub fn home() -> PathBuf {
-    env::var_os("ANYBRANCH_HOME")
+    env::var_os("SNAPSHOTDB_HOME")
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(env::var("HOME").expect("HOME is set")).join(".anybranch"))
+        .unwrap_or_else(|| PathBuf::from(env::var("HOME").expect("HOME is set")).join(".snapshotdb"))
 }
 
 /// Exclusive marker on a branch while its engine is being started or its data cloned, so
@@ -310,7 +320,7 @@ impl Branch {
 
     /// Replication object name (publication, subscription, slot, DDL schema) for this root.
     fn subname(&self) -> String {
-        format!("anybranch_{}", self.name.replace(['-', '.'], "_"))
+        format!("snapshotdb_{}", self.name.replace(['-', '.'], "_"))
     }
 
     fn setting(&self, key: &str) -> Option<String> {
@@ -337,7 +347,7 @@ impl Branch {
         self.password().or_else(|| self.parent().and_then(|p| Branch::load(&p).ok()).and_then(|p| p.inherited_password()))
     }
 
-    /// anybranch manages credentials for roots it created (`--new`, `sync`) and their clones.
+    /// snapshotdb manages credentials for roots it created (`--new`, `sync`) and their clones.
     /// Imported data directories keep whatever auth they came with.
     fn managed(&self) -> bool {
         self.dir.join("new").exists()
@@ -349,7 +359,7 @@ impl Branch {
         match self.engine {
             Engine::Postgres => env::var("USER").unwrap_or_else(|_| "postgres".into()),
             Engine::Mysql => "root".into(),
-            Engine::Mongodb => "anybranch".into(),
+            Engine::Mongodb => "snapshotdb".into(),
             Engine::Sqlite => String::new(),
         }
     }
@@ -399,40 +409,40 @@ impl Branch {
             Engine::Postgres => {
                 let admin = self.admin_user().replace('"', "\"\"");
                 self.sql(&format!(
-                    "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='anybranch_agent') THEN CREATE ROLE anybranch_agent; END IF; END $$; \
-                     ALTER ROLE anybranch_agent LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '{password}'; \
-                     ALTER ROLE anybranch_agent RESET ALL; \
-                     DO $$ DECLARE r record; BEGIN FOR r IN SELECT roleid::regrole AS role FROM pg_auth_members WHERE member='anybranch_agent'::regrole LOOP \
-                     EXECUTE format('REVOKE %s FROM anybranch_agent', r.role); END LOOP; \
-                     IF EXISTS (SELECT FROM pg_auth_members WHERE member='anybranch_agent'::regrole) THEN RAISE EXCEPTION 'agent role still has inherited memberships'; END IF; \
-                     FOR r IN SELECT d.datname FROM pg_db_role_setting s JOIN pg_database d ON d.oid=s.setdatabase WHERE s.setrole='anybranch_agent'::regrole LOOP \
-                     EXECUTE format('ALTER ROLE anybranch_agent IN DATABASE %I RESET ALL',r.datname); END LOOP; END $$; \
+                    "DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname='snapshotdb_agent') THEN CREATE ROLE snapshotdb_agent; END IF; END $$; \
+                     ALTER ROLE snapshotdb_agent LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '{password}'; \
+                     ALTER ROLE snapshotdb_agent RESET ALL; \
+                     DO $$ DECLARE r record; BEGIN FOR r IN SELECT roleid::regrole AS role FROM pg_auth_members WHERE member='snapshotdb_agent'::regrole LOOP \
+                     EXECUTE format('REVOKE %s FROM snapshotdb_agent', r.role); END LOOP; \
+                     IF EXISTS (SELECT FROM pg_auth_members WHERE member='snapshotdb_agent'::regrole) THEN RAISE EXCEPTION 'agent role still has inherited memberships'; END IF; \
+                     FOR r IN SELECT d.datname FROM pg_db_role_setting s JOIN pg_database d ON d.oid=s.setdatabase WHERE s.setrole='snapshotdb_agent'::regrole LOOP \
+                     EXECUTE format('ALTER ROLE snapshotdb_agent IN DATABASE %I RESET ALL',r.datname); END LOOP; END $$; \
                      DO $$ DECLARE r record; BEGIN \
-                     EXECUTE format('ALTER DATABASE %I OWNER TO anybranch_agent', current_database()); \
+                     EXECUTE format('ALTER DATABASE %I OWNER TO snapshotdb_agent', current_database()); \
                      FOR r IN SELECT nspname FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema' LOOP \
-                       EXECUTE format('ALTER SCHEMA %I OWNER TO anybranch_agent', r.nspname); END LOOP; \
+                       EXECUTE format('ALTER SCHEMA %I OWNER TO snapshotdb_agent', r.nspname); END LOOP; \
                      FOR r IN SELECT c.oid::regclass AS obj, c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace \
                        WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' AND c.relkind IN ('r','p','v','m','S','f') AND NOT (c.relkind='S' AND EXISTS (SELECT FROM pg_depend d WHERE d.objid=c.oid AND d.deptype IN ('a','i'))) LOOP \
-                       EXECUTE format('ALTER %s %s OWNER TO anybranch_agent', CASE r.relkind WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW' WHEN 'S' THEN 'SEQUENCE' WHEN 'f' THEN 'FOREIGN TABLE' ELSE 'TABLE' END, r.obj); END LOOP; \
+                       EXECUTE format('ALTER %s %s OWNER TO snapshotdb_agent', CASE r.relkind WHEN 'v' THEN 'VIEW' WHEN 'm' THEN 'MATERIALIZED VIEW' WHEN 'S' THEN 'SEQUENCE' WHEN 'f' THEN 'FOREIGN TABLE' ELSE 'TABLE' END, r.obj); END LOOP; \
                      FOR r IN SELECT p.oid::regprocedure AS obj,p.prokind FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace \
                        WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' LOOP \
-                       EXECUTE format('ALTER %s %s OWNER TO anybranch_agent', CASE r.prokind WHEN 'p' THEN 'PROCEDURE' WHEN 'a' THEN 'AGGREGATE' ELSE 'FUNCTION' END,r.obj); END LOOP; \
+                       EXECUTE format('ALTER %s %s OWNER TO snapshotdb_agent', CASE r.prokind WHEN 'p' THEN 'PROCEDURE' WHEN 'a' THEN 'AGGREGATE' ELSE 'FUNCTION' END,r.obj); END LOOP; \
                      FOR r IN SELECT t.oid::regtype AS obj FROM pg_type t JOIN pg_namespace n ON n.oid=t.typnamespace \
                        WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' AND t.typtype IN ('e','d') LOOP \
-                       EXECUTE format('ALTER TYPE %s OWNER TO anybranch_agent',r.obj); END LOOP; END $$; \
+                       EXECUTE format('ALTER TYPE %s OWNER TO snapshotdb_agent',r.obj); END LOOP; END $$; \
                      ALTER ROLE \"{admin}\" PASSWORD '{admin_password}';"
                 ))?;
             }
             Engine::Mysql => {
-                self.sql(&format!("DROP USER IF EXISTS 'anybranch_agent'@'localhost'; CREATE USER 'anybranch_agent'@'localhost' IDENTIFIED BY '{password}';"))?;
+                self.sql(&format!("DROP USER IF EXISTS 'snapshotdb_agent'@'localhost'; CREATE USER 'snapshotdb_agent'@'localhost' IDENTIFIED BY '{password}';"))?;
                 let dbs = self.sql("SHOW DATABASES")?;
                 for db in dbs.lines().filter(|d| !matches!(*d, "Database" | "mysql" | "sys" | "information_schema" | "performance_schema")) {
-                    self.sql(&format!("GRANT ALL PRIVILEGES ON `{}`.* TO 'anybranch_agent'@'localhost'", db.replace('`', "``")))?;
+                    self.sql(&format!("GRANT ALL PRIVILEGES ON `{}`.* TO 'snapshotdb_agent'@'localhost'", db.replace('`', "``")))?;
                 }
                 self.sql(&format!("ALTER USER 'root'@'localhost' IDENTIFIED BY '{admin_password}'"))?;
             }
             Engine::Mongodb => {
-                self.sql(&format!("const a=db.getSiblingDB('admin'); if(a.getUser('anybranch_agent')) a.dropUser('anybranch_agent'); a.createUser({{user:'anybranch_agent',pwd:'{password}',roles:['readWriteAnyDatabase','dbAdminAnyDatabase']}}); a.changeUserPassword('anybranch','{admin_password}');"))?;
+                self.sql(&format!("const a=db.getSiblingDB('admin'); if(a.getUser('snapshotdb_agent')) a.dropUser('snapshotdb_agent'); a.createUser({{user:'snapshotdb_agent',pwd:'{password}',roles:['readWriteAnyDatabase','dbAdminAnyDatabase']}}); a.changeUserPassword('snapshotdb','{admin_password}');"))?;
             }
             Engine::Sqlite => unreachable!(),
         }
@@ -495,11 +505,11 @@ impl Branch {
             return sqlite::url(self);
         }
         let port = self.port().filter(|_| self.proxy_alive() || self.running());
-        let port = port.ok_or_else(|| format!("{0} is stopped; run: anybranch start {0}", self.name))?;
+        let port = port.ok_or_else(|| format!("{0} is stopped; run: snapshotdb start {0}", self.name))?;
         Ok(self.url_on(port, true))
     }
 
-    /// URL straight to the engine, for anybranch's own maintenance commands (MongoDB, and
+    /// URL straight to the engine, for snapshotdb's own maintenance commands (MongoDB, and
     /// mongorestore). Carries the password the data currently accepts.
     fn engine_url(&self) -> R<String> {
         let port = self.eport().filter(|_| self.running()).ok_or_else(|| format!("{} is not running", self.name))?;
@@ -514,10 +524,10 @@ impl Branch {
     }
 
     fn url_on(&self, port: u16, public: bool) -> String {
-        let host = if public { env::var("ANYBRANCH_PUBLIC_HOST").unwrap_or_else(|_| "127.0.0.1".into()) } else { "127.0.0.1".into() };
+        let host = if public { env::var("SNAPSHOTDB_PUBLIC_HOST").unwrap_or_else(|_| "127.0.0.1".into()) } else { "127.0.0.1".into() };
         let db = self.database();
         let agent = public && self.parent().is_some() && self.managed();
-        let user = if agent { "anybranch_agent".into() } else { self.admin_user() };
+        let user = if agent { "snapshotdb_agent".into() } else { self.admin_user() };
         let pw = if agent { fs::read_to_string(self.dir.join("agent-password")).ok() }
             else if public { self.password() } else { self.inherited_password() };
         let cred = match &pw {
@@ -575,13 +585,13 @@ impl Branch {
 
     // --- lifecycle -----------------------------------------------------------------
 
-    /// Create an empty database in data/, cleanly shut down, with credentials anybranch manages.
+    /// Create an empty database in data/, cleanly shut down, with credentials snapshotdb manages.
     fn init(&self) -> R<()> {
         let data = self.data();
         io(fs::write(self.dir.join("new"), ""))?;
         match self.engine {
             Engine::Postgres => {
-                // Password auth over TCP, trust on the Unix socket that anybranch itself uses.
+                // Password auth over TCP, trust on the Unix socket that snapshotdb itself uses.
                 let pw = random_password()?;
                 let pwfile = self.run().join("pwfile");
                 write_secret(&pwfile, &pw)?;
@@ -689,7 +699,7 @@ impl Branch {
                 // wal_level=logical lets any branch serve as a replication source. Clones get no
                 // apply workers, so an inherited subscription can never race the root for its slot.
                 // %b tags each log line with the backend type, so status can tell a replication
-                // worker's error from anybranch's own statements.
+                // worker's error from snapshotdb's own statements.
                 // wal_receiver_timeout: replaying a long DDL on a big table must not look like a dead link.
                 let mut opts = format!(
                     "-c listen_addresses=127.0.0.1 -c port={port} -c unix_socket_directories='{}' -c wal_level=logical -c log_line_prefix='%m [%p] %b: ' -c wal_receiver_timeout={REPLICATION_TIMEOUT_MS}",
@@ -711,7 +721,7 @@ impl Branch {
                 }
                 let mut cmd = sandbox::command(self, "mongod")?;
                 cmd.arg("--dbpath").arg(&data)
-                    .args(["--port", &port.to_string(), "--bind_ip", "127.0.0.1", "--nounixsocket", "--logappend", "--replSet", "anybranch"])
+                    .args(["--port", &port.to_string(), "--bind_ip", "127.0.0.1", "--nounixsocket", "--logappend", "--replSet", "snapshotdb"])
                     .arg("--logpath").arg(run.join("log"))
                     .arg("--pidfilepath").arg(run.join("pid"));
                 if self.managed() {
@@ -919,7 +929,7 @@ impl Branch {
     fn rm(&self) -> R<()> {
         pool::before_remove(self)?;
         if self.dir.join("lock").exists() {
-            return Err(format!("{0} is locked; run: anybranch unlock {0}", self.name));
+            return Err(format!("{0} is locked; run: snapshotdb unlock {0}", self.name));
         }
         if let Some(url) = self.source() {
             // Release production-side resources first: an orphaned Postgres slot retains WAL forever.
@@ -1005,9 +1015,9 @@ impl Branch {
                     let (err, lsn) = self.last_apply_error();
                     lines.push(("stream", format!("PAUSED after an error: {err}")));
                     lines.push(("repair", match lsn {
-                        _ if err.contains("missing replicated column") || err.contains("does not exist") => format!("anybranch repair {} reconciles the schema from the source and resumes", self.name),
-                        Some(l) => format!("anybranch repair {} skips the transaction at {l} and resumes", self.name),
-                        None => format!("anybranch repair {} resumes (the error was not tied to a transaction)", self.name),
+                        _ if err.contains("missing replicated column") || err.contains("does not exist") => format!("snapshotdb repair {} reconciles the schema from the source and resumes", self.name),
+                        Some(l) => format!("snapshotdb repair {} skips the transaction at {l} and resumes", self.name),
+                        None => format!("snapshotdb repair {} resumes (the error was not tied to a transaction)", self.name),
                     }));
                 } else {
                     let stream = self.sql(
@@ -1033,7 +1043,7 @@ impl Branch {
                          || coalesce(' (last: ' || (SELECT error FROM {sub}.ddl WHERE error IS NOT NULL ORDER BY id DESC LIMIT 1) || ')', '') FROM {sub}.ddl"
                     ))?
                 } else {
-                    format!("not tracked (no event trigger on the source); after migrations run: anybranch reconcile {}", self.name)
+                    format!("not tracked (no event trigger on the source); after migrations run: snapshotdb reconcile {}", self.name)
                 }));
             }
             Engine::Mysql => {
@@ -1054,7 +1064,7 @@ impl Branch {
                 let paused = threads.contains("error:");
                 lines.push(("stream", format!("{}{}, {pending}", if paused { "PAUSED: " } else { "" }, if threads.is_empty() { "not configured".to_string() } else { threads })));
                 if paused {
-                    lines.push(("repair", format!("anybranch repair {} skips the failing transaction", self.name)));
+                    lines.push(("repair", format!("snapshotdb repair {} skips the failing transaction", self.name)));
                 }
             }
             Engine::Mongodb => {
@@ -1062,7 +1072,7 @@ impl Branch {
                 let tailing = live_pid(&run.join("tailpid")).is_some();
                 let applied = fs::read_to_string(run.join("applied")).unwrap_or_else(|_| "nothing yet".into());
                 let failed = fs::read_to_string(run.join("tail.errors")).map(|s| s.lines().count()).unwrap_or(0);
-                lines.push(("stream", format!("{}, last event applied {applied}", if tailing { "tailing" } else { "stopped (anybranch repair restarts it; see run/tail.log)" })));
+                lines.push(("stream", format!("{}, last event applied {applied}", if tailing { "tailing" } else { "stopped (snapshotdb repair restarts it; see run/tail.log)" })));
                 lines.push(("failed event attempts", format!("{failed}{}", if failed > 0 { " (checkpoint retained; see run/tail.errors)" } else { "" })));
             }
             Engine::Sqlite => {}
@@ -1411,7 +1421,7 @@ fn sync(engine: &str, name: &str, url: &str, schemas: &str, fix_identity: bool) 
                     if ddl {
                         // Last, so our own publication statements are not logged and replayed.
                         if let Err(e) = psql(url, &format!("CREATE EVENT TRIGGER {sub} ON ddl_command_end EXECUTE FUNCTION {sub}.log_ddl()")) {
-                            eprintln!("schema changes will not replay automatically (an event trigger on the source needs superuser): {}\n  after production migrations run: anybranch reconcile {name}", e.lines().last().unwrap_or(""));
+                            eprintln!("schema changes will not replay automatically (an event trigger on the source needs superuser): {}\n  after production migrations run: snapshotdb reconcile {name}", e.lines().last().unwrap_or(""));
                         }
                     }
                     // disable_on_error: a poisoned transaction pauses the stream instead of retrying forever;
@@ -1427,7 +1437,7 @@ fn sync(engine: &str, name: &str, url: &str, schemas: &str, fix_identity: bool) 
                 let _ = b.rm_quiet();
                 return Err(e);
             }
-            eprintln!("{name} replicates {} tables from the source; initial copy continues in the background ({:.1}s so far). Check: anybranch status {name}", tables.matches(", ").count() + 1, started.elapsed().as_secs_f64());
+            eprintln!("{name} replicates {} tables from the source; initial copy continues in the background ({:.1}s so far). Check: snapshotdb status {name}", tables.matches(", ").count() + 1, started.elapsed().as_secs_f64());
             b.set_current()?;
             Ok(b)
         }
@@ -1461,7 +1471,7 @@ fn sync(engine: &str, name: &str, url: &str, schemas: &str, fix_identity: bool) 
                 let _ = b.rm_quiet();
                 return Err(e);
             }
-            eprintln!("{name} replicates [{dbs}] from the source ({:.1}s). Check: anybranch status {name}", started.elapsed().as_secs_f64());
+            eprintln!("{name} replicates [{dbs}] from the source ({:.1}s). Check: snapshotdb status {name}", started.elapsed().as_secs_f64());
             b.set_current()?;
             Ok(b)
         }
@@ -1487,7 +1497,7 @@ fn sync(engine: &str, name: &str, url: &str, schemas: &str, fix_identity: bool) 
                 let _ = b.rm_quiet();
                 return Err(e);
             }
-            eprintln!("{name} replicates from the source via change streams ({:.1}s). Check: anybranch status {name}", started.elapsed().as_secs_f64());
+            eprintln!("{name} replicates from the source via change streams ({:.1}s). Check: snapshotdb status {name}", started.elapsed().as_secs_f64());
             b.set_current()?;
             Ok(b)
         }
@@ -1561,7 +1571,7 @@ fn ensure_branch_ready(p: &Branch) -> R<()> {
             if errors != "0" { return Err(format!("replica {} has failed schema changes; repair the recorded DDL errors before branching", p.name)); }
         }
         if ready != "t" {
-            return Err(format!("replica {0} is still copying or replication is paused; check: anybranch status {0}", p.name));
+            return Err(format!("replica {0} is still copying or replication is paused; check: snapshotdb status {0}", p.name));
         }
         wait_postgres_freshness(p)?;
     }
@@ -1575,11 +1585,11 @@ fn wait_postgres_freshness(p: &Branch) -> R<()> {
     let source = p.source().ok_or("freshness requires a synced root")?;
     let local = p.socket_url(&p.database())?;
     let sub = p.subname();
-    let timeout = env::var("ANYBRANCH_FRESHNESS_TIMEOUT_SECONDS")
+    let timeout = env::var("SNAPSHOTDB_FRESHNESS_TIMEOUT_SECONDS")
         .unwrap_or_else(|_| "600".into()).parse::<u64>()
-        .map_err(|_| "ANYBRANCH_FRESHNESS_TIMEOUT_SECONDS must be an integer from 1 to 3600")?;
+        .map_err(|_| "SNAPSHOTDB_FRESHNESS_TIMEOUT_SECONDS must be an integer from 1 to 3600")?;
     if !(1..=3600).contains(&timeout) {
-        return Err("ANYBRANCH_FRESHNESS_TIMEOUT_SECONDS must be from 1 to 3600".into());
+        return Err("SNAPSHOTDB_FRESHNESS_TIMEOUT_SECONDS must be from 1 to 3600".into());
     }
     let started = Instant::now();
     let query = |url: &str, sql: &str| -> R<String> {
@@ -2031,7 +2041,7 @@ ALTER TABLE {sub}.ddl ENABLE ALWAYS TRIGGER apply_ddl;"
 /// clone (which inherited its parent's host:port) onto its own port.
 const MONGO_ENSURE_PRIMARY: &str = "
 const me = '127.0.0.1:PORT';
-const cfg = { _id: 'anybranch', version: 1, members: [{ _id: 0, host: me }] };
+const cfg = { _id: 'snapshotdb', version: 1, members: [{ _id: 0, host: me }] };
 let status; try { status = rs.status(); } catch (e) { status = e; }
 if (status.codeName === 'NotYetInitialized') rs.initiate(cfg);
 else if (!(status.members || []).some(m => m.self && m.name === me)) rs.reconfig(cfg, { force: true });
@@ -2085,16 +2095,16 @@ mod tests {
 
     #[test]
     fn public_urls_use_server_host_and_maintenance_stays_on_loopback() {
-        let previous = env::var_os("ANYBRANCH_PUBLIC_HOST");
-        env::set_var("ANYBRANCH_PUBLIC_HOST", "branches.internal");
+        let previous = env::var_os("SNAPSHOTDB_PUBLIC_HOST");
+        env::set_var("SNAPSHOTDB_PUBLIC_HOST", "branches.internal");
         for engine in [Engine::Postgres, Engine::Mysql, Engine::Mongodb] {
-            let branch = Branch { name: "url-only".into(), dir: PathBuf::from("/nonexistent-anybranch-url-test"), engine };
+            let branch = Branch { name: "url-only".into(), dir: PathBuf::from("/nonexistent-snapshotdb-url-test"), engine };
             assert!(branch.url_on(54321, true).contains("branches.internal:54321"));
             assert!(branch.url_on(54321, false).contains("127.0.0.1:54321"));
         }
         match previous {
-            Some(value) => env::set_var("ANYBRANCH_PUBLIC_HOST", value),
-            None => env::remove_var("ANYBRANCH_PUBLIC_HOST"),
+            Some(value) => env::set_var("SNAPSHOTDB_PUBLIC_HOST", value),
+            None => env::remove_var("SNAPSHOTDB_PUBLIC_HOST"),
         }
     }
 

@@ -2,7 +2,7 @@
 
 Status: **not completed**. Historical results in `head-to-head-results.md` do not
 establish an infrastructure-controlled win. The security changes must be deployed
-on the measured Anybranch server, not only the client.
+on the measured SnapshotDB server, not only the client.
 
 Two different questions require separate reports:
 
@@ -70,7 +70,7 @@ separate explanation and must use equivalent start/end events on both systems.
   browser verification; this repository currently contains no website application.
 
 If a feature is unavailable on either product, show **unsupported/unverified**.
-An Anybranch-only test cannot establish comparative parity. PostgreSQL results
+An SnapshotDB-only test cannot establish comparative parity. PostgreSQL results
 cannot establish MongoDB or MySQL performance against a PostgreSQL-only endpoint.
 
 ## Publication gate
@@ -78,4 +78,4 @@ cannot establish MongoDB or MySQL performance against a PostgreSQL-only endpoint
 Attach commit and binary hashes, sanitized raw samples, configuration evidence,
 source manifest, failure counts, test commands and observed limitations. Report
 latency wins only for the exact passing mode and size. Never compare prepared
-Anybranch capacity with an unprepared Ardent branch under one headline.
+SnapshotDB capacity with an unprepared Ardent branch under one headline.

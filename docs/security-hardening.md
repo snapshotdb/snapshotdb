@@ -7,7 +7,7 @@ measurements of the updated implementation.
 
 ## Changes
 
-- Child database URLs use a restricted `anybranch_agent` account. PostgreSQL removes
+- Child database URLs use a restricted `snapshotdb_agent` account. PostgreSQL removes
   superuser, replication, role-administration and inherited membership privileges;
   MySQL grants application-database privileges without server administration or file
   export; MongoDB grants data/database administration without user administration.
@@ -57,7 +57,7 @@ with Btrfs reflinks into a separate test server's storage. The original benchmar
 is not modified. The timer covers local CLI launch, API creation, URL, a fresh native
 connection, reading copied data, a committed write and read-back. It also verifies
 the returned role is non-superuser and cannot read server files. This is a protected
-Anybranch test, not a new simultaneous Ardent comparison.
+SnapshotDB test, not a new simultaneous Ardent comparison.
 
 Measured table size: **1,000,060,870,656 bytes**.
 

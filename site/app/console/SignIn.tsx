@@ -7,7 +7,7 @@ const ERRORS: Record<string, string> = {
   oauth_user: "Couldn’t read your GitHub profile. Try again.",
 };
 
-export default function SignIn({ githubReady, error }: { githubReady: boolean; error?: string }) {
+export default function SignIn({ error }: { error?: string }) {
   return (
     <div className="abc">
       <div className="signin">
@@ -19,13 +19,13 @@ export default function SignIn({ githubReady, error }: { githubReady: boolean; e
               <circle cx="23" cy="16" r="3" />
               <path d="M9 10v12M9 16h4a6 6 0 0 0 6-6" />
             </svg>
-            any<em>branch</em>
+            <span className="wm">snapshot<em>db</em></span>
           </div>
 
           <h1>Sign in to the console</h1>
           <p>
             Manage your sources and branches. You’ll connect the console to your self-hosted
-            anybranch server with its access token after signing in.
+            snapshotdb server with its access token after signing in.
           </p>
 
           {error && <div className="err">{ERRORS[error] || "Something went wrong. Try again."}</div>}
@@ -36,18 +36,6 @@ export default function SignIn({ githubReady, error }: { githubReady: boolean; e
             </svg>
             Continue with GitHub
           </a>
-
-          {!githubReady && (
-            <>
-              <a className="btn" href="/api/auth/mock" style={{ width: "100%", justifyContent: "center", marginTop: 10, padding: "12px 15px" }}>
-                Enter demo console
-              </a>
-              <div className="fine">
-                GitHub OAuth isn’t configured on this deployment. Set <code>GITHUB_CLIENT_ID</code> and{" "}
-                <code>GITHUB_CLIENT_SECRET</code> to enable it. The demo entry is for local preview only.
-              </div>
-            </>
-          )}
         </div>
       </div>
     </div>

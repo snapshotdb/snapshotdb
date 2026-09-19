@@ -1,50 +1,50 @@
-#!/usr/bin/env bash
-# Installs the anybranch CLI. See https://www.snapshotdb.io/docs/install
-set -euo pipefail
+#!/bin/sh
+# SnapshotDB installer — https://www.snapshotdb.io
+#   curl -fsSL https://www.snapshotdb.io/install.sh | sh
+set -e
 
-BASE_URL="https://www.snapshotdb.io/dl"
-INSTALL_DIR="${ANYBRANCH_INSTALL_DIR:-/usr/local/bin}"
+REPO="${SNAPSHOTDB_REPO:-GitHoobar/anybranch}"   # repo rename to snapshotdb pending
+BIN="snapshotdb"
+PREFIX="${SNAPSHOTDB_PREFIX:-/usr/local/bin}"
 
-os=$(uname -s)
+say() { printf '\033[1msnapshotdb\033[0m %s\n' "$1"; }
+err() { printf 'error: %s\n' "$1" >&2; exit 1; }
+
+os=$(uname -s | tr '[:upper:]' '[:lower:]')
 arch=$(uname -m)
-
+case "$arch" in
+  x86_64|amd64) arch=x86_64 ;;
+  arm64|aarch64) arch=aarch64 ;;
+  *) err "unsupported architecture: $arch" ;;
+esac
 case "$os" in
-  Darwin)
-    case "$arch" in
-      arm64) asset="anybranch-darwin-arm64" ;;
-      x86_64) asset="anybranch-darwin-amd64" ;;
-      *) echo "error: unsupported macOS architecture: $arch" >&2; exit 1 ;;
-    esac
-    ;;
-  Linux)
-    case "$arch" in
-      x86_64) asset="anybranch-linux-amd64" ;;
-      *) echo "error: unsupported Linux architecture: $arch (only x86_64 is published)" >&2; exit 1 ;;
-    esac
-    ;;
-  *)
-    echo "error: unsupported OS: $os" >&2
-    exit 1
-    ;;
+  darwin) target="$arch-apple-darwin" ;;
+  linux)  target="$arch-unknown-linux-gnu" ;;
+  *) err "unsupported OS: $os" ;;
 esac
 
-tmp=$(mktemp)
-trap 'rm -f "$tmp"' EXIT
-echo "Downloading $asset..."
-curl -fsSL "$BASE_URL/$asset" -o "$tmp"
-chmod +x "$tmp"
+say "installing for $target"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+url="https://github.com/$REPO/releases/latest/download/$BIN-$target.tar.gz"
 
-dest="$INSTALL_DIR/anybranch"
-if [ -w "$INSTALL_DIR" ]; then
-  mv "$tmp" "$dest"
+if curl -fsSL "$url" -o "$tmp/$BIN.tar.gz" 2>/dev/null; then
+  tar -xzf "$tmp/$BIN.tar.gz" -C "$tmp"
+  if [ -w "$PREFIX" ]; then
+    mv "$tmp/$BIN" "$PREFIX/$BIN" && chmod +x "$PREFIX/$BIN"
+  else
+    say "writing to $PREFIX (needs sudo)"
+    sudo mv "$tmp/$BIN" "$PREFIX/$BIN" && sudo chmod +x "$PREFIX/$BIN"
+  fi
+  say "installed to $PREFIX/$BIN"
+elif command -v cargo >/dev/null 2>&1; then
+  say "no prebuilt binary for $target — building from source with cargo"
+  cargo install --git "https://github.com/$REPO" --locked
+  say "installed via cargo"
 else
-  echo "Need sudo to write to $INSTALL_DIR"
-  sudo mv "$tmp" "$dest"
+  err "no prebuilt binary for $target and cargo not found.
+  install Rust (https://rustup.rs) and re-run, or download a release:
+  https://github.com/$REPO/releases"
 fi
 
-echo "Installed anybranch to $dest"
-"$dest" --help 2>&1 | head -1 || true
-echo
-echo "Set these before using database commands:"
-echo "  export ANYBRANCH_SERVER=https://your-server"
-echo "  export ANYBRANCH_TOKEN='<server access token>'"
+say "done — run '$BIN --help' · docs: https://www.snapshotdb.io/docs"

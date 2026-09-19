@@ -26,14 +26,14 @@ variable "engine_profile" {
   }
 }
 
-source "amazon-ebs" "anybranch" {
+source "amazon-ebs" "snapshotdb" {
   region                      = var.region
   instance_type               = "m6i.xlarge"
   ssh_username                = "ubuntu"
   ssh_timeout                 = "10m"
   temporary_security_group_source_public_ip = true
-  ami_name                    = "anybranch-${var.engine_profile}-${var.revision}-${formatdate("YYYYMMDDhhmmss", timestamp())}"
-  ami_description             = "Anybranch BYOC appliance; initialize an empty Btrfs data volume after launch."
+  ami_name                    = "snapshotdb-${var.engine_profile}-${var.revision}-${formatdate("YYYYMMDDhhmmss", timestamp())}"
+  ami_description             = "SnapshotDB BYOC appliance; initialize an empty Btrfs data volume after launch."
   source_ami_filter {
     filters = {
       name                = "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"
@@ -55,7 +55,7 @@ source "amazon-ebs" "anybranch" {
     http_endpoint = "enabled"
   }
   tags = {
-    Project = "anybranch"
+    Project = "snapshotdb"
     Purpose = "byoc-appliance"
     Revision = var.revision
     EngineProfile = var.engine_profile
@@ -63,18 +63,18 @@ source "amazon-ebs" "anybranch" {
 }
 
 build {
-  sources = ["source.amazon-ebs.anybranch"]
+  sources = ["source.amazon-ebs.snapshotdb"]
   provisioner "file" {
     source      = var.source_archive
-    destination = "/tmp/anybranch-source.tar.gz"
+    destination = "/tmp/snapshotdb-source.tar.gz"
   }
   provisioner "shell" {
     inline = [
       "sudo cloud-init status --wait",
-      "mkdir /tmp/anybranch-image-src",
-      "tar -xzf /tmp/anybranch-source.tar.gz -C /tmp/anybranch-image-src",
-      "sudo bash /tmp/anybranch-image-src/deploy/byoc/install.sh ${var.engine_profile}",
-      "sudo rm -rf /tmp/anybranch-image-src /tmp/anybranch-source.tar.gz",
+      "mkdir /tmp/snapshotdb-image-src",
+      "tar -xzf /tmp/snapshotdb-source.tar.gz -C /tmp/snapshotdb-image-src",
+      "sudo bash /tmp/snapshotdb-image-src/deploy/byoc/install.sh ${var.engine_profile}",
+      "sudo rm -rf /tmp/snapshotdb-image-src /tmp/snapshotdb-source.tar.gz",
       "sudo cloud-init clean --logs --machine-id",
       "sudo rm -f /etc/ssh/ssh_host_* /root/.ssh/authorized_keys /home/ubuntu/.ssh/authorized_keys"
     ]

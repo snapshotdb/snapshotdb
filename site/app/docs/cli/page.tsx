@@ -1,4 +1,4 @@
-export const metadata = { title: "CLI reference — anybranch docs" };
+export const metadata = { title: "CLI reference — snapshotdb docs" };
 
 export default function Page() {
   return (
@@ -37,7 +37,7 @@ export default function Page() {
 
       <h2>Settings</h2>
       <p>Per-root defaults applied to every new branch:</p>
-      <pre className="code"><code>anybranch settings &lt;root&gt; set default_db app{"\n"}anybranch settings &lt;root&gt; set branch_sql @anonymize.sql --hook 10-anon{"\n"}anybranch settings &lt;root&gt; set source &apos;postgresql://…&apos;   <span className="c"># rotate credentials</span></code></pre>
+      <pre className="code"><code>snapshotdb settings &lt;root&gt; set default_db app{"\n"}snapshotdb settings &lt;root&gt; set branch_sql @anonymize.sql --hook 10-anon{"\n"}snapshotdb settings &lt;root&gt; set source &apos;postgresql://…&apos;   <span className="c"># rotate credentials</span></code></pre>
       <p><code>branch_sql</code> hooks run once per new branch, in hook-name order; multiple hooks coexist via <code>--hook</code>.</p>
 
       <h2>Server</h2>

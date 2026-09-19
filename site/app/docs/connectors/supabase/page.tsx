@@ -1,4 +1,4 @@
-export const metadata = { title: "Supabase — anybranch docs" };
+export const metadata = { title: "Supabase — snapshotdb docs" };
 
 export default function Page() {
   return (
@@ -15,10 +15,10 @@ export default function Page() {
       </ul>
 
       <h2>Schema tracking without superuser</h2>
-      <p>The <code>postgres</code> role on Supabase is not a raw superuser, but Supabase’s <code>supautils</code> grants it privileged-role powers, including creating event triggers. anybranch detects this: preflight reports <code>can create event trigger</code> as a privileged role, so schema-change replay works as the <code>postgres</code> role. Verified against the <code>supabase/postgres</code> image.</p>
+      <p>The <code>postgres</code> role on Supabase is not a raw superuser, but Supabase’s <code>supautils</code> grants it privileged-role powers, including creating event triggers. snapshotdb detects this: preflight reports <code>can create event trigger</code> as a privileged role, so schema-change replay works as the <code>postgres</code> role. Verified against the <code>supabase/postgres</code> image.</p>
 
       <h2>Extensions</h2>
-      <p>The schema copy uses <code>pg_dump --schema-only</code>. Extensions the source uses that are not installed on the anybranch server surface as schema-load warnings (saved to <code>run/schema.log</code>); rows still replicate. Install the extensions you depend on on the server, or accept that extension-owned objects are absent on branches.</p>
+      <p>The schema copy uses <code>pg_dump --schema-only</code>. Extensions the source uses that are not installed on the snapshotdb server surface as schema-load warnings (saved to <code>run/schema.log</code>); rows still replicate. Install the extensions you depend on on the server, or accept that extension-owned objects are absent on branches.</p>
 
       <div className="np"><a href="/docs/connectors/rds">← AWS RDS</a><a className="n" href="/docs/connectors/mysql">MySQL →</a></div>
     </>

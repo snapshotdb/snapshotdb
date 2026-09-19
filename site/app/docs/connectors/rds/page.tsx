@@ -1,4 +1,4 @@
-export const metadata = { title: "AWS RDS — anybranch docs" };
+export const metadata = { title: "AWS RDS — snapshotdb docs" };
 
 export default function Page() {
   return (
@@ -23,7 +23,7 @@ export default function Page() {
       </ul>
 
       <h2>Network</h2>
-      <p>RDS instances are usually not publicly reachable. Run the anybranch server where it can reach the instance (same VPC, or via a bastion / tunnel), and point <code>preflight</code>/<code>clone</code> at the instance endpoint. Preflight is read-only, so it is safe to run first to confirm the path and settings.</p>
+      <p>RDS instances are usually not publicly reachable. Run the snapshotdb server where it can reach the instance (same VPC, or via a bastion / tunnel), and point <code>preflight</code>/<code>clone</code> at the instance endpoint. Preflight is read-only, so it is safe to run first to confirm the path and settings.</p>
 
       <div className="note"><b>Changing a parameter group requires a reboot,</b> which is disruptive on a production instance. Do it in a maintenance window, or connect a read-restricted replica the same way.</div>
 

@@ -5,7 +5,7 @@
   "concurrent_load": "1 TB sync and CLI tests",
   "datasets": {
     "100mb": {
-      "anybranch": [
+      "snapshotdb": [
         {
           "index": 0,
           "url_ms": 890.444,
@@ -81,7 +81,7 @@
       ]
     },
     "10gb": {
-      "anybranch": [
+      "snapshotdb": [
         {
           "index": 0,
           "url_ms": 868.867,
@@ -159,7 +159,7 @@
   },
   "cleanup": [
     {
-      "provider": "anybranch",
+      "provider": "snapshotdb",
       "name": "api-100mb-806b32fe",
       "operation_id": "06dcc481bc531edfce63857eead07981",
       "state": "submitted"
@@ -171,7 +171,7 @@
       "state": "submitted"
     },
     {
-      "provider": "anybranch",
+      "provider": "snapshotdb",
       "name": "api-100mb-1c1cc53d",
       "operation_id": "38c31d405bc855abfee32f36cf9837c9",
       "state": "submitted"
@@ -183,7 +183,7 @@
       "state": "submitted"
     },
     {
-      "provider": "anybranch",
+      "provider": "snapshotdb",
       "name": "api-100mb-f2e49ae0",
       "operation_id": "1604439be2cd6bfb6f6859194969916d",
       "state": "submitted"
@@ -195,7 +195,7 @@
       "state": "submitted"
     },
     {
-      "provider": "anybranch",
+      "provider": "snapshotdb",
       "name": "api-100mb-7adf02d6",
       "operation_id": "53f81c59da72634f92a5a3fd9a7432c8",
       "state": "submitted"
@@ -207,7 +207,7 @@
       "state": "submitted"
     },
     {
-      "provider": "anybranch",
+      "provider": "snapshotdb",
       "name": "api-100mb-d39f0a84",
       "operation_id": "3b1145de87e92fa7f3943bec9767f62c",
       "state": "submitted"
@@ -219,7 +219,7 @@
       "state": "submitted"
     },
     {
-      "provider": "anybranch",
+      "provider": "snapshotdb",
       "name": "api-10gb-bc888596",
       "operation_id": "1ef8ac9c74a0f9a5f59d987c42f8812d",
       "state": "submitted"
@@ -231,7 +231,7 @@
       "state": "submitted"
     },
     {
-      "provider": "anybranch",
+      "provider": "snapshotdb",
       "name": "api-10gb-f1a3a245",
       "operation_id": "bf3589d4e9f76dc6b4e460d51a7e738a",
       "state": "submitted"
@@ -243,7 +243,7 @@
       "state": "submitted"
     },
     {
-      "provider": "anybranch",
+      "provider": "snapshotdb",
       "name": "api-10gb-6ef8b9d6",
       "operation_id": "b932ca283f8177bbfbbe71eecd864021",
       "state": "submitted"
@@ -255,7 +255,7 @@
       "state": "submitted"
     },
     {
-      "provider": "anybranch",
+      "provider": "snapshotdb",
       "name": "api-10gb-6e4e2945",
       "operation_id": "d4a87089ce75afc5359fad1ce44e6726",
       "state": "submitted"
@@ -267,7 +267,7 @@
       "state": "submitted"
     },
     {
-      "provider": "anybranch",
+      "provider": "snapshotdb",
       "name": "api-10gb-99995f20",
       "operation_id": "048abf690e466ae5c188d89e3bc260e9",
       "state": "submitted"
@@ -279,5 +279,5 @@
       "state": "submitted"
     }
   ],
-  "isolation_verification": "Source and Anybranch replica lack branch-created api_agent_probe and backend_agent_probe tables; checked independently through source SQL."
+  "isolation_verification": "Source and SnapshotDB replica lack branch-created api_agent_probe and backend_agent_probe tables; checked independently through source SQL."
 }

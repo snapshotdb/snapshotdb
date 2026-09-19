@@ -1,5 +1,11 @@
-import Effects from "./Effects";
+import HeroFig from "./HeroFig";
 import SiteFooter from "./SiteFooter";
+import Boot from "./Boot";
+import Stats from "./Stats";
+import Desktop from "./Desktop";
+import Install from "./Install";
+import Term from "./Term";
+import Reveal from "./Reveal";
 
 function Logo({ size = 23 }: { size?: number }) {
   return (
@@ -9,15 +15,15 @@ function Logo({ size = 23 }: { size?: number }) {
   );
 }
 const GH = "https://github.com/GitHoobar/anybranch";
-const len = (n: number) => ({ ["--len" as string]: n } as React.CSSProperties);
 
 export default function Home() {
   return (
     <div className="frame">
+      <Boot />
       <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
 
       <nav><div className="row">
-        <a className="logo" href="#top"><Logo />any<em>branch</em></a>
+        <a className="logo" href="#top"><Logo /><span className="wm">snapshot<em>db</em></span></a>
         <div className="links"><a href="#how">How it works</a><a href="#why">Why</a><a href="/docs">Docs</a><a href="/console">Console</a><a href={GH}>GitHub</a></div>
         <a className="btn solid" href="#start">Get started</a>
       </div></nav>
@@ -29,31 +35,19 @@ export default function Home() {
           <p className="sub">An isolated, writable copy of production in seconds — any size, any engine, on infrastructure you own.</p>
           <div className="statusline"><span className="live" />replica <b>in sync</b> · branch <b id="phase">opens</b></div>
           <div className="actions"><a className="btn solid" href="#start">Start branching <span className="arw">→</span></a><a className="btn" href="/console">Open console</a></div>
+          <Install />
           <div className="terms">
             <div><b>~1s</b>1 TB branch</div><div><b>0</b>prod creds</div><div><b>4</b>engines</div><div><b>CoW</b>copy-on-write</div>
           </div>
         </div>
-        <div className="right">
-          <div className="fig">fig.01 — copy-on-write branching</div>
-          <div className="figtr" id="readout"><span className="b" />streaming</div>
-          <div className="figr" id="figr">nodes: 1 · branches: 5</div>
-          <div className="stage"><svg viewBox="0 0 640 460" id="organism" aria-hidden="true">
-            <defs>
-              <radialGradient id="halo"><stop offset="0" stopColor="#fbf7ef" stopOpacity=".18" /><stop offset="1" stopColor="#fbf7ef" stopOpacity="0" /></radialGradient>
-            </defs>
-            <circle cx="96" cy="230" r="110" fill="url(#halo)" />
-            <path id="spine" d="M96 230 H520" fill="none" stroke="#efe9df" strokeWidth="1.5" strokeLinecap="round" className="draw" style={len(424)} opacity=".85" />
-            <path d="M96 230 H520" fill="none" stroke="#fbf7ef" strokeWidth="1.2" strokeLinecap="round" className="flow" opacity=".5" />
-            <g id="ruler" /><g id="branchlayer" /><g id="particles" /><g id="sprouts" />
-            <g className="node" style={{ animationDelay: ".1s" }}>
-              <circle cx="96" cy="230" r="11" fill="#0b0a09" stroke="#fbf7ef" strokeWidth="2" /><circle cx="96" cy="230" r="3.5" fill="#fbf7ef" />
-            </g>
-            <text className="anno" x="78" y="266" style={{ animationDelay: "1s" }}>prod</text>
-          </svg></div>
-        </div>
+        <HeroFig />
       </div></section>
 
       <div className="hatch" />
+
+      <Stats />
+
+      <Desktop />
 
       <section className="sec" id="how-anchor">
         <div className="sec-h" id="how"><span className="no">01</span><h2>The life of a branch</h2>
@@ -93,17 +87,7 @@ export default function Home() {
           <div className="cell"><div className="op">─ replicate →</div><b>Replica</b><span>in sync, on your server</span></div>
           <div className="cell"><div className="op">─ copy-on-write →</div><b>Branches</b><span>instant · isolated · writable</span></div>
         </div>
-        <div className="term">
-          <div className="bar"><i /><i /><i /><span>anybranch</span></div>
-          <pre>
-            <span className="c"># check the source, then keep a live replica</span>{"\n"}
-            <span className="p">$</span> <span className="k">anybranch preflight postgres</span> &apos;postgresql://…/app&apos;   <span className="c">✓ passed</span>{"\n"}
-            <span className="p">$</span> <span className="k">anybranch clone prod</span> &apos;postgresql://…/app&apos;{"\n\n"}
-            <span className="c"># branch it — ready in seconds, its own URL</span>{"\n"}
-            <span className="p">$</span> <span className="k">anybranch create fix-orders --from prod --print-url</span>{"\n"}
-            postgresql://you:••••@branches.internal:57375/app
-          </pre>
-        </div>
+        <Term />
       </section>
 
       <section className="final">
@@ -119,7 +103,7 @@ export default function Home() {
 
       <SiteFooter />
 
-      <Effects />
+      <Reveal />
     </div>
   );
 }

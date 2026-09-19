@@ -1,14 +1,14 @@
 {
   "state": "completed_with_freshness_failure",
   "client_region": "ap-south-1",
-  "anybranch_region": "ap-south-1",
+  "snapshotdb_region": "ap-south-1",
   "ardent_region": "us-east-1",
   "infrastructure_parity": false,
   "measurement": "source COMMIT acknowledged to fresh branch with all updated rows verified and agent committed write readable on a new connection",
   "limitations": [
     "One trial per update size; no percentile claims",
     "Ardent managed compute/storage differ or are unknown",
-    "Anybranch control and database connections are loopback; Ardent connections cross regions",
+    "SnapshotDB control and database connections are loopback; Ardent connections cross regions",
     "Validation time is included and separately recorded",
     "Stale branches are discarded; retries and wait are included in total latency"
   ],
@@ -19,7 +19,7 @@
       "logical_payload_bytes": 100000800,
       "marker": "e473176c6ef3467dbdddd46ce46c5ea7",
       "providers": {
-        "anybranch": {
+        "snapshotdb": {
           "attempts": [
             {
               "name": "update-86ae09c305cb40b7",
@@ -160,7 +160,7 @@
       "logical_payload_bytes": 1000008000,
       "marker": "214cccff059a4b76b573711cd3a3403c",
       "providers": {
-        "anybranch": {
+        "snapshotdb": {
           "attempts": [
             {
               "name": "update-54a5ef37a43a46d5",
@@ -583,9 +583,9 @@
     }
   ],
   "binary_sha256": "e85c0b7e7c4608d6bf9a952acb2ac87e370c7ad3f6e768d8aac3c210f7a0d584",
-  "anybranch_test_replica_setup_seconds": 51.944631997001125,
+  "snapshotdb_test_replica_setup_seconds": 51.944631997001125,
   "source_table_bytes": 10769661952,
-  "diagnostic_notes": "# Mumbai committed-update diagnostic\n\nPostgreSQL, retained 10 GB synthetic source. One transaction changes all eight tables, 1,700-byte payloads: 58,824 rows (100,000,800 logical bytes), then 588,240 rows (1,000,008,000 bytes). These are payload bytes, not measured WAL bytes. Timers start after COMMIT acknowledgement; source execution time is separate.\n\nBoth provider API requests run concurrently on the same Mumbai EC2 client. Anybranch runs on that client host; Ardent managed data plane is in Virginia. Infrastructure and transport are not matched. Existing source subscribers remain active. No strict infrastructure winner can be inferred.\n\nFirst diagnostic verifies every changed row before agent write/readback. Expensive verification delays retries and contributes to measured time. Failed/stale attempts remain in the report. Cleanup time is excluded from latency but awaited before the next transaction. Source data is retained.\n\nObserved Anybranch behaviour: src/main.rs create_cold stops and restarts the parent before/after cloning. Replica logs show replication-worker termination at these stops. ensure_branch_ready checks enabled subscription and completed initial copy, without a source-commit barrier. First 100 MB branch was stale. Ardent first two 100 MB branches were also stale.\n\nDuring the 1 GB run, vmstat instantaneous samples showed 205\u2013248 MiB/s reads, 257\u2013285 MiB/s writes (approximately 500 MiB/s aggregate), 39\u201345% I/O wait, and nine blocked tasks. This is a shared-host I/O limitation as well as a freshness test. It does not isolate source-network, apply, and branch startup latency.\n\nA second harness was prepared to time indexed probes and agent read/write first, admitting the candidate only after full verification. It has not run; its queued service was stopped to avoid starting more writes before reviewing the diagnostic outcome. No numbers from that harness are claimed.\n",
+  "diagnostic_notes": "# Mumbai committed-update diagnostic\n\nPostgreSQL, retained 10 GB synthetic source. One transaction changes all eight tables, 1,700-byte payloads: 58,824 rows (100,000,800 logical bytes), then 588,240 rows (1,000,008,000 bytes). These are payload bytes, not measured WAL bytes. Timers start after COMMIT acknowledgement; source execution time is separate.\n\nBoth provider API requests run concurrently on the same Mumbai EC2 client. SnapshotDB runs on that client host; Ardent managed data plane is in Virginia. Infrastructure and transport are not matched. Existing source subscribers remain active. No strict infrastructure winner can be inferred.\n\nFirst diagnostic verifies every changed row before agent write/readback. Expensive verification delays retries and contributes to measured time. Failed/stale attempts remain in the report. Cleanup time is excluded from latency but awaited before the next transaction. Source data is retained.\n\nObserved SnapshotDB behaviour: src/main.rs create_cold stops and restarts the parent before/after cloning. Replica logs show replication-worker termination at these stops. ensure_branch_ready checks enabled subscription and completed initial copy, without a source-commit barrier. First 100 MB branch was stale. Ardent first two 100 MB branches were also stale.\n\nDuring the 1 GB run, vmstat instantaneous samples showed 205\u2013248 MiB/s reads, 257\u2013285 MiB/s writes (approximately 500 MiB/s aggregate), 39\u201345% I/O wait, and nine blocked tasks. This is a shared-host I/O limitation as well as a freshness test. It does not isolate source-network, apply, and branch startup latency.\n\nA second harness was prepared to time indexed probes and agent read/write first, admitting the candidate only after full verification. It has not run; its queued service was stopped to avoid starting more writes before reviewing the diagnostic outcome. No numbers from that harness are claimed.\n",
   "second_harness_executed": false,
   "cleanup_reconciliation": [
     {

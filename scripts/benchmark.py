@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a disposable Anybranch server and PostgreSQL scale test on a chosen host."""
+"""Run a disposable SnapshotDB server and PostgreSQL scale test on a chosen host."""
 import argparse
 import json
 import os
@@ -21,7 +21,7 @@ def parser():
     location.add_argument("--host", help="SSH host or configured alias")
     location.add_argument("--local", action="store_true", help="explicitly run the test server on this machine")
     p.add_argument("--home", required=True, type=absolute_path, help="data directory on the chosen host")
-    p.add_argument("--binary", default="anybranch", help="server-host binary, preferably an absolute path")
+    p.add_argument("--binary", default="snapshotdb", help="server-host binary, preferably an absolute path")
     p.add_argument("--engine-bin", type=absolute_path, help="PostgreSQL bin directory on the chosen host")
     size = p.add_mutually_exclusive_group()
     size.add_argument("--target-gb", type=int, help="decimal GB of table/index storage; default 1; 1000 = 1 TB")
@@ -43,7 +43,7 @@ def main(argv=None):
     a = p.parse_args(argv)
     if a.resume and not a.keep:
         p.error("--resume requires --keep so existing data is preserved on failure")
-    prefix = ["env", "ANYBRANCH_HOME=" + a.home]
+    prefix = ["env", "SNAPSHOTDB_HOME=" + a.home]
     if a.engine_bin:
         # A fixed executable search path avoids expanding user input in a remote shell.
         prefix.append("PATH=" + a.engine_bin + ":/usr/local/bin:/usr/bin:/bin")
