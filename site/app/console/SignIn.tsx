@@ -7,7 +7,7 @@ const ERRORS: Record<string, string> = {
   oauth_user: "Couldn’t read your GitHub profile. Try again.",
 };
 
-export default function SignIn({ githubReady, error }: { githubReady: boolean; error?: string }) {
+export default function SignIn({ error }: { error?: string }) {
   return (
     <div className="abc">
       <div className="signin">
@@ -36,18 +36,6 @@ export default function SignIn({ githubReady, error }: { githubReady: boolean; e
             </svg>
             Continue with GitHub
           </a>
-
-          {!githubReady && (
-            <>
-              <a className="btn" href="/api/auth/mock" style={{ width: "100%", justifyContent: "center", marginTop: 10, padding: "12px 15px" }}>
-                Enter demo console
-              </a>
-              <div className="fine">
-                GitHub OAuth isn’t configured on this deployment. Set <code>GITHUB_CLIENT_ID</code> and{" "}
-                <code>GITHUB_CLIENT_SECRET</code> to enable it. The demo entry is for local preview only.
-              </div>
-            </>
-          )}
         </div>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { getSession, githubConfigured } from "./auth";
+import { getSession } from "./auth";
 import SignIn from "./SignIn";
 import Console from "./Console";
 
@@ -16,5 +16,5 @@ export default async function Page({
   if (user) return <Console user={user} />;
 
   const { error } = await searchParams;
-  return <SignIn githubReady={githubConfigured()} error={error} />;
+  return <SignIn error={error} />;
 }

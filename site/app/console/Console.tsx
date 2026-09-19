@@ -109,7 +109,7 @@ export default function Console({ user }: { user: SessionUser }) {
             )}
             <div className="u-t">
               <div className="nm">{display}</div>
-              <div className="hd">{user.provider === "demo" ? "demo session" : "@" + user.login}</div>
+              <div className="hd">{"@" + user.login}</div>
             </div>
             <a className="out" href="/api/auth/logout" title="Sign out" aria-label="Sign out">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
