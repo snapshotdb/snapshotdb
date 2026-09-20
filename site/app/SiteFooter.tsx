@@ -3,7 +3,7 @@
 import { useEffect, useRef } from "react";
 import Logo from "./Logo";
 
-const GH = "https://github.com/GitHoobar/anybranch";
+const GH = "https://github.com/snapshotdb/snapshotdb";
 
 export default function SiteFooter() {
   const ref = useRef<HTMLCanvasElement>(null);

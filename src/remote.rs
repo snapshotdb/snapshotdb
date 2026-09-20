@@ -124,11 +124,25 @@ pub fn route(raw: Vec<String>) -> R<Option<Vec<String>>> {
     Ok(None)
 }
 
-fn reply(request: Request, status: u16, body: Value) {
-    let response = Response::from_string(body.to_string())
+fn allowed_origin<'a>(request: &'a Request, origins: &[String]) -> Option<&'a str> {
+    request.headers().iter().find(|h| h.field.equiv("Origin"))
+        .map(|h| h.value.as_str()).filter(|origin| origins.iter().any(|v| v == origin))
+}
+
+fn reply(request: Request, status: u16, body: Value, origins: &[String]) {
+    let mut response = Response::from_string(body.to_string())
         .with_status_code(status)
         .with_header(Header::from_bytes("Content-Type", "application/json").unwrap())
-        .with_header(Header::from_bytes("Cache-Control", "no-store").unwrap());
+        .with_header(Header::from_bytes("Cache-Control", "no-store").unwrap())
+        .with_header(Header::from_bytes("Vary", "Origin").unwrap());
+    if let Some(origin) = allowed_origin(&request, origins) {
+        response.add_header(Header::from_bytes("Access-Control-Allow-Origin", origin).unwrap());
+        if status == 204 {
+            response.add_header(Header::from_bytes("Access-Control-Allow-Methods", "GET, POST").unwrap());
+            response.add_header(Header::from_bytes("Access-Control-Allow-Headers", "Authorization, Content-Type").unwrap());
+            response.add_header(Header::from_bytes("Access-Control-Max-Age", "600").unwrap());
+        }
+    }
     let _ = request.respond(response);
 }
 
@@ -178,6 +192,16 @@ fn token() -> R<String> {
 }
 
 fn serve(args: &Args) -> R<()> {
+    // Explicit opt-in: never allow arbitrary websites to read an admin API.
+    let origins: Vec<String> = env::var("SNAPSHOTDB_CONSOLE_ORIGINS").unwrap_or_default()
+        .split(',').map(str::trim).filter(|v| !v.is_empty()).map(str::to_owned).collect();
+    for origin in &origins {
+        let authority = origin.strip_prefix("https://").or_else(|| origin.strip_prefix("http://"));
+        if !authority.is_some_and(|host| !host.is_empty() && host.bytes().all(|b| b.is_ascii_alphanumeric() || b".-:[]".contains(&b))) {
+            return Err("SNAPSHOTDB_CONSOLE_ORIGINS must contain exact http(s) origins, without paths or wildcards".into());
+        }
+    }
+    let reply = |request, status, body| reply(request, status, body, &origins);
     let stopping = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         signal_hook::flag::register(signal, stopping.clone()).map_err(|e| e.to_string())?;
@@ -270,6 +294,23 @@ fn serve(args: &Args) -> R<()> {
     );
     while !stopping.load(std::sync::atomic::Ordering::Relaxed) {
         let Some(mut request) = server.recv_timeout(Duration::from_millis(100)).map_err(|e| e.to_string())? else { continue; };
+        if request.method() == &Method::Options {
+            let method = request.headers().iter().find(|h| h.field.equiv("Access-Control-Request-Method"))
+                .map(|h| h.value.as_str());
+            let headers_ok = request.headers().iter().filter(|h| h.field.equiv("Access-Control-Request-Headers"))
+                .all(|h| h.value.as_str().split(',').all(|v| matches!(v.trim().to_ascii_lowercase().as_str(), "authorization" | "content-type")));
+            let path_ok = match method {
+                Some("GET") => request.url() == "/v1/health" || request.url().starts_with("/v1/jobs/"),
+                Some("POST") => request.url() == "/v1/commands",
+                _ => false,
+            };
+            if allowed_origin(&request, &origins).is_some() && headers_ok && path_ok {
+                reply(request, 204, Value::Null);
+            } else {
+                reply(request, 403, json!({"error": "console origin, method, or headers not allowed"}));
+            }
+            continue;
+        }
         let authorized = request.headers().iter().any(|h| {
             h.field.equiv("Authorization")
                 && same_token(

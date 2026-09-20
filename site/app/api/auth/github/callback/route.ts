@@ -8,8 +8,11 @@ export async function GET(req: NextRequest) {
   const state = url.searchParams.get("state");
   const expected = req.cookies.get(OAUTH_STATE_COOKIE)?.value;
 
-  const fail = (reason: string) =>
-    NextResponse.redirect(new URL(`/console?error=${reason}`, req.url));
+  const fail = (reason: string) => {
+    const response = NextResponse.redirect(new URL(`/console?error=${reason}`, req.url));
+    for (const name of [OAUTH_STATE_COOKIE, "ab_cli_port", "ab_cli_state"]) response.cookies.delete(name);
+    return response;
+  };
 
   if (!code || !state || !expected || state !== expected) return fail("oauth_state");
 
@@ -31,6 +34,7 @@ export async function GET(req: NextRequest) {
         redirect_uri: redirectUri,
       }),
     });
+    if (!tokenRes.ok) return fail("oauth_token");
     const tokenJson = await tokenRes.json();
     accessToken = tokenJson?.access_token;
   } catch {
@@ -47,23 +51,25 @@ export async function GET(req: NextRequest) {
         "User-Agent": "snapshotdb-console",
       },
     });
+    if (!userRes.ok) return fail("oauth_user");
     gh = await userRes.json();
   } catch {
     return fail("oauth_user");
   }
   if (!gh?.login) return fail("oauth_user");
 
-  const session = encodeSession({
+  let session: string;
+  try { session = encodeSession({
     login: gh.login,
     name: gh.name || gh.login,
     avatar: gh.avatar_url,
     provider: "github",
-  });
+  }); } catch { return fail("github_not_configured"); }
 
   // CLI login: hand the session back to the local loopback the CLI is listening on.
   const cliPort = req.cookies.get("ab_cli_port")?.value;
-  if (cliPort && /^\d{2,5}$/.test(cliPort)) {
-    const cliState = req.cookies.get("ab_cli_state")?.value || "";
+  const cliState = req.cookies.get("ab_cli_state")?.value || "";
+  if (cliPort && /^\d{1,5}$/.test(cliPort) && Number(cliPort) > 0 && Number(cliPort) <= 65535 && /^[a-f0-9]{32}$/.test(cliState)) {
     const to = new URL(`http://127.0.0.1:${cliPort}/callback`);
     to.searchParams.set("token", session);
     to.searchParams.set("user", gh.login);

@@ -9,9 +9,9 @@ export default function Page() {
 
       <h2>Client</h2>
       <p>The client is a single Rust binary and only needs itself:</p>
-      <pre className="code"><code><span className="p">$</span> cargo install --git https://github.com/GitHoobar/anybranch</code></pre>
-      <p>Or download a release binary for macOS (arm64, x86_64) or Linux (x86_64, aarch64) from the <a href="https://github.com/GitHoobar/anybranch/releases">Releases</a> page.</p>
-      <div className="note"><b>Note:</b> the client/server split is on <code>main</code> and unreleased; the v0.3.0 release binaries still use local storage. Build from source for the server mode described here.</div>
+      <pre className="code"><code><span className="p">$</span> curl -fsSL https://snapshotdb.io/install.sh | sh</code></pre>
+      <p>Published binaries support macOS (arm64, x86_64) and Linux (x86_64). The installer verifies the download checksum. For other Linux architectures, build from <a href="https://github.com/snapshotdb/snapshotdb">source</a>.</p>
+      <div className="note"><b>Client and server:</b> set <code>SNAPSHOTDB_SERVER</code> and <code>SNAPSHOTDB_TOKEN</code> before issuing database commands. GitHub sign-in does not replace your server access token.</div>
 
       <h2>Server engine binaries</h2>
       <p>Engines run on the <b>server</b>, so their binaries must be on the server’s <code>PATH</code>. Only install the engines you branch.</p>
@@ -21,16 +21,15 @@ export default function Page() {
           <tr><td>Postgres</td><td><code>pg_ctl initdb psql pg_dump pg_dumpall</code></td></tr>
           <tr><td>MySQL</td><td><code>mysqld mysql mysqldump</code></td></tr>
           <tr><td>MongoDB</td><td><code>mongod mongosh</code> + <code>mongodump mongorestore</code> for sync</td></tr>
-          <tr><td>SQLite</td><td>the stdlib <code>sqlite3</code> is enough</td></tr>
+          <tr><td>SQLite</td><td>Bundled with SnapshotDB; no separate SQLite runtime needed.</td></tr>
         </tbody>
       </table>
 
       <h2>Filesystem</h2>
-      <p>Copy-on-write cloning is <code>cp -c</code> (clonefile) on macOS/APFS and <code>cp --reflink=always</code> on Linux (Btrfs, XFS with reflink, or bcachefs). On a filesystem without reflink support, branches fall back to full byte copies, so branch storage is no longer free. Point <code>SNAPSHOTDB_HOME</code> at a directory on a reflink-capable volume.</p>
+      <p>Copy-on-write cloning is <code>cp -c</code> (clonefile) on macOS/APFS and <code>cp --reflink=always</code> on Linux (Btrfs, XFS with reflink, or bcachefs). Linux refuses clones when reflinks are unavailable. macOS needs APFS for copy-on-write; other macOS filesystems may copy bytes. Point <code>SNAPSHOTDB_HOME</code> at a directory on a reflink-capable volume.</p>
 
-      <h2>Optional: restore branches at login</h2>
-      <pre className="code"><code><span className="p">$</span> snapshotdb service install</code></pre>
-      <p>Installs a launchd agent (macOS) or a systemd user unit (Linux) that runs <code>snapshotdb up</code> after a reboot, restoring every branch’s proxy and restarting synced roots.</p>
+      <h2>Restore branches after reboot</h2>
+      <p>Run <code>snapshotdb serve</code> under your service manager. Starting the server restores branch proxies and restarts synced roots. Linux systemd units are included under <code>deploy/</code> in the repository.</p>
 
       <div className="np"><a href="/docs/quickstart">← Quickstart</a><a className="n" href="/docs/server">Server deployment →</a></div>
     </>

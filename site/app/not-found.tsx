@@ -1,3 +1,4 @@
+import Link from "next/link";
 export const metadata = { title: "Not found" };
 
 export default function NotFound() {
@@ -9,8 +10,8 @@ export default function NotFound() {
         <h1 style={{ fontSize: 52, fontWeight: 600, letterSpacing: "-.03em" }}>Branch not found.</h1>
         <p style={{ color: "var(--muted)", margin: "14px 0 28px" }}>That page was reset, dropped, or never opened.</p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-          <a className="btn solid" href="/">← Home</a>
-          <a className="btn" href="/docs">Docs</a>
+          <Link className="btn solid" href="/">← Home</Link>
+          <Link className="btn" href="/docs">Docs</Link>
         </div>
       </div>
     </div>

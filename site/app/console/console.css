@@ -155,7 +155,7 @@ main{padding:30px 0 90px}
   border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
 .abc [hidden]{display:none!important}
-@media(max-width:640px){.head h1{font-size:24px}.row2{grid-template-columns:1fr}}
+@media(max-width:640px){.abc .head h1{font-size:24px}.abc .row2{grid-template-columns:1fr}}
 .abc /* ===== dashboard shell ===== */
 .app{display:grid;grid-template-columns:242px 1fr;min-height:100vh}
 .abc .side{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;
@@ -202,11 +202,17 @@ main{padding:30px 0 90px}
 .abc .content.v-branches .meta{display:none}
 .abc .content.v-branches .card{background:transparent}
 @media(max-width:860px){
-  .app{grid-template-columns:1fr}
-  .side{position:static;height:auto}
-  .nav{flex-flow:row wrap}.nav-h,.side-foot{display:none}
-  .statcards{grid-template-columns:1fr}
-  .topbar,.content{padding-left:18px;padding-right:18px}
+  .abc .app{grid-template-columns:1fr}
+  .abc .side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}
+  .abc .nav{flex-flow:row wrap}.abc .nav-h,.abc .side-foot{display:none}
+  .abc .nav-i{width:auto}
+  .abc .statcard{padding:14px 12px}
+  .abc .statcard .lbl{font-size:9px;letter-spacing:.04em}
+  .abc .topbar,.abc .content{padding-left:18px;padding-right:18px}
+  .abc .crow,.abc .cactions,.abc .brow{flex-wrap:wrap}
+  .abc .cactions{margin-left:0}
+  .abc .topbar{flex-wrap:wrap}
+  .abc .grant,.abc .meta dd{overflow-wrap:anywhere}
 }
 
 .abc{min-height:100vh;position:relative}

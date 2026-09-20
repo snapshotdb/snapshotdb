@@ -13,6 +13,7 @@ export default function Page() {
         <tbody>
           <tr><td><code>SNAPSHOTDB_SERVER</code></td><td>Server base URL the client submits jobs to. Required — the client fails without it.</td></tr>
           <tr><td><code>SNAPSHOTDB_TOKEN</code></td><td>Admin token, sent as <code>Authorization: Bearer</code>.</td></tr>
+          <tr><td><code>SNAPSHOTDB_CONSOLE_ORIGINS</code></td><td>Comma-separated exact browser origins allowed to call the control API. No wildcards; disabled by default.</td></tr>
           <tr><td><code>SNAPSHOTDB_HOME</code></td><td><b>Server</b> storage directory (default <code>~/.snapshotdb</code>). Put it on a reflink-capable volume.</td></tr>
           <tr><td><code>SNAPSHOTDB_IDLE_MINUTES</code></td><td>Idle timeout before a branch suspends (default 5; 0 never suspends).</td></tr>
         </tbody>

@@ -201,7 +201,7 @@ Give an agent a branch, not production. The skill in `skills/snapshotdb/SKILL.md
 Claude Code or Cursor the rules; install it with:
 
 ```sh
-mkdir -p .claude/skills/snapshotdb && curl -fsSL https://raw.githubusercontent.com/GitHoobar/snapshotdb/main/skills/snapshotdb/SKILL.md -o .claude/skills/snapshotdb/SKILL.md
+mkdir -p .claude/skills/snapshotdb && curl -fsSL https://raw.githubusercontent.com/snapshotdb/snapshotdb/main/skills/snapshotdb/SKILL.md -o .claude/skills/snapshotdb/SKILL.md
 ```
 
 In CI, a fresh database per job:

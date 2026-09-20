@@ -29,7 +29,7 @@ export default function DocsSidebar() {
       ))}
       <div className="grp">More</div>
       <a href="/console">Console</a>
-      <a href="https://github.com/GitHoobar/anybranch">GitHub</a>
+      <a href="https://github.com/snapshotdb/snapshotdb">GitHub</a>
     </aside>
   );
 }

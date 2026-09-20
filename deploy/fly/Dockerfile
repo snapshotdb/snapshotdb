@@ -8,7 +8,7 @@ FROM debian:bookworm-slim
 RUN apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
     bubblewrap postgresql postgresql-client xfsprogs btrfs-progs util-linux ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /src/target/release/anybranch /usr/local/bin/anybranch
+COPY --from=builder /src/target/release/snapshotdb /usr/local/bin/snapshotdb
 COPY deploy/fly/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/entrypoint.sh
 ENV PATH="/usr/lib/postgresql/15/bin:/usr/local/bin:${PATH}"

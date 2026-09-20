@@ -4,6 +4,7 @@
 # of reformatting the volume itself. Upgrade path: a bare-metal host with a native
 # Btrfs/XFS root disk (see deploy/ec2-bootstrap.sh) skips this indirection entirely.
 set -euo pipefail
+umask 077
 
 DATA=/data
 MOUNT=/srv/anybranch
@@ -48,16 +49,18 @@ id -u anybranch >/dev/null 2>&1 || useradd --system --create-home --shell /usr/s
 chown -R anybranch:anybranch "$MOUNT" "$DATA"
 
 TOKEN_FILE="$DATA/anybranch.token"
-if [ -z "${ANYBRANCH_TOKEN:-}" ]; then
+# Keep existing Fly secrets valid during upgrades from the old binary name.
+SNAPSHOTDB_TOKEN="${SNAPSHOTDB_TOKEN:-${ANYBRANCH_TOKEN:-}}"
+if [ -z "${SNAPSHOTDB_TOKEN:-}" ]; then
   if [ ! -f "$TOKEN_FILE" ]; then
     head -c32 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$TOKEN_FILE"
   fi
-  ANYBRANCH_TOKEN=$(cat "$TOKEN_FILE")
+  SNAPSHOTDB_TOKEN=$(cat "$TOKEN_FILE")
 fi
-export ANYBRANCH_TOKEN
-export ANYBRANCH_HOME="$MOUNT"
+export SNAPSHOTDB_TOKEN
+export SNAPSHOTDB_HOME="$MOUNT"
 
-PUBLIC_HOST="${ANYBRANCH_PUBLIC_HOST:-${FLY_APP_NAME:-anybranch}.internal}"
-echo "anybranch serve starting; public-host=$PUBLIC_HOST; token stored at $TOKEN_FILE"
-exec runuser -u anybranch -- env "PATH=$PATH" "ANYBRANCH_HOME=$ANYBRANCH_HOME" "ANYBRANCH_TOKEN=$ANYBRANCH_TOKEN" \
-  anybranch serve --bind 0.0.0.0:7432 --db-bind 0.0.0.0 --public-host "$PUBLIC_HOST"
+PUBLIC_HOST="${SNAPSHOTDB_PUBLIC_HOST:-${ANYBRANCH_PUBLIC_HOST:-${FLY_APP_NAME:-anybranch}.internal}}"
+echo "snapshotdb serve starting; public-host=$PUBLIC_HOST; token stored at $TOKEN_FILE"
+exec runuser -u anybranch -- env "PATH=$PATH" "SNAPSHOTDB_HOME=$SNAPSHOTDB_HOME" "SNAPSHOTDB_TOKEN=$SNAPSHOTDB_TOKEN" \
+  snapshotdb serve --bind 0.0.0.0:7432 --db-bind 0.0.0.0 --public-host "$PUBLIC_HOST"

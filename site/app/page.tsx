@@ -7,7 +7,7 @@ import Install from "./Install";
 import Term from "./Term";
 import Reveal from "./Reveal";
 import Logo from "./Logo";
-const GH = "https://github.com/GitHoobar/anybranch";
+const GH = "https://github.com/snapshotdb/snapshotdb";
 
 export default function Home() {
   return (
@@ -25,12 +25,12 @@ export default function Home() {
         <div className="left">
           <div className="eyebrow"><b>OSS</b><span>GIT FOR YOUR DATABASE</span></div>
           <h1 className="title"><span><i>Branch your</i></span><span><i>database</i></span><span><i>like code.</i></span></h1>
-          <p className="sub">An isolated, writable copy of production in seconds — any size, any engine, on infrastructure you own.</p>
+          <p className="sub">An isolated, writable copy of production in seconds — PostgreSQL, MySQL, MongoDB, and SQLite, on infrastructure you own.</p>
           <div className="statusline"><span className="live" />replica <b>in sync</b> · branch <b id="phase">opens</b></div>
           <div className="actions"><a className="btn solid" href="#start">Start branching <span className="arw">→</span></a><a className="btn" href="/console">Open console</a></div>
           <Install />
           <div className="terms">
-            <div><b>~1s</b>1 TB branch</div><div><b>0</b>prod creds</div><div><b>4</b>engines</div><div><b>CoW</b>copy-on-write</div>
+            <div><b>&lt;1s</b>prepared 1 TB</div><div><b>0</b>prod creds</div><div><b>4</b>engines</div><div><b>CoW</b>copy-on-write</div>
           </div>
         </div>
         <HeroFig />
@@ -46,7 +46,7 @@ export default function Home() {
         <div className="sec-h" id="how"><span className="no">01</span><h2>The life of a branch</h2>
           <p>Opens off the replica, diverges into isolation, does real work, collects nothing back.</p></div>
         <div className="beats">
-          <div className="beat reveal"><div className="k">01 / OPEN</div><h3>It <em>opens</em></h3><p>A copy-on-write clone of the live replica. No data copies until a page changes — 1 TB opens as fast as 1 MB.</p>
+          <div className="beat reveal"><div className="k">01 / OPEN</div><h3>It <em>opens</em></h3><p>A copy-on-write clone of the live replica. Unchanged pages share storage. Prepare a pool ahead of time for sub-second branch claims.</p>
             <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="10" cy="20" r="4" /><path d="M14 20h8" /><circle cx="28" cy="20" r="4" /></svg></div>
           <div className="beat reveal"><div className="k">02 / DIVERGE</div><h3>It <em>diverges</em></h3><p>Own server, own port, own generated credentials. Writes stay on the branch — never production, never a sibling.</p>
             <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="9" cy="20" r="4" /><path d="M13 20q9 0 12-7M13 20q9 0 12 7" /><circle cx="29" cy="12" r="3" /><circle cx="29" cy="28" r="3" /></svg></div>
@@ -90,7 +90,7 @@ export default function Home() {
           <h2 style={{ marginTop: 16 }}>Give every change<br />its own database.</h2>
           <p>Branch production like a git branch — for migrations, tests, and coding agents. Self-hosted and free.</p>
           <div className="actions"><a className="btn solid" href={GH}>★ Star on GitHub</a><a className="btn" href="/console">Open the console</a></div>
-          <div className="metrics"><div><b>~1s</b><span>1 TB BRANCH</span></div><div><b>0</b><span>PROD CREDS LEAKED</span></div><div><b>4</b><span>ENGINES</span></div></div>
+          <div className="metrics"><div><b>&lt;1s</b><span>PREPARED 1 TB</span></div><div><b>0</b><span>PROD CREDS LEAKED</span></div><div><b>4</b><span>ENGINES</span></div></div>
         </div>
       </section>
 

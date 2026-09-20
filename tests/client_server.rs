@@ -129,6 +129,7 @@ fn authenticated_jobs_execute_only_in_server_storage() {
     let server = Command::new(env!("CARGO_BIN_EXE_snapshotdb"))
         .env("SNAPSHOTDB_HOME", base.join("server"))
         .env("SNAPSHOTDB_TOKEN", TOKEN)
+        .env("SNAPSHOTDB_CONSOLE_ORIGINS", "http://localhost:3000,https://snapshotdb.io")
         .args([
             "serve",
             "--bind",
@@ -159,6 +160,26 @@ fn authenticated_jobs_execute_only_in_server_storage() {
         ureq::get(format!("{}/v1/health", f.url)).call(),
         Err(ureq::Error::StatusCode(401))
     ));
+    let preflight = ureq::options(format!("{}/v1/commands", f.url))
+        .header("Origin", "http://localhost:3000")
+        .header("Access-Control-Request-Method", "POST")
+        .header("Access-Control-Request-Headers", "authorization,content-type")
+        .call().unwrap();
+    assert_eq!(preflight.status(), 204);
+    assert_eq!(preflight.headers()["Access-Control-Allow-Origin"], "http://localhost:3000");
+    for origin in ["https://attacker.invalid", "http://localhost:3000.attacker.invalid", "null"] {
+        assert!(matches!(ureq::options(format!("{}/v1/commands", f.url))
+            .header("Origin", origin).header("Access-Control-Request-Method", "POST").call(),
+            Err(ureq::Error::StatusCode(403))));
+        let response = ureq::get(format!("{}/v1/health", f.url))
+            .header("Origin", origin).header("Authorization", format!("Bearer {TOKEN}")).call().unwrap();
+        assert!(response.headers().get("Access-Control-Allow-Origin").is_none());
+    }
+    assert!(matches!(ureq::get(format!("{}/v1/health", f.url))
+        .header("Origin", "http://localhost:3000").call(), Err(ureq::Error::StatusCode(401))));
+    let health = ureq::get(format!("{}/v1/health", f.url))
+        .header("Origin", "https://snapshotdb.io").header("Authorization", format!("Bearer {TOKEN}")).call().unwrap();
+    assert_eq!(health.headers()["Access-Control-Allow-Origin"], "https://snapshotdb.io");
     let invalid = ureq::post(format!("{}/v1/commands", f.url))
         .header("Authorization", format!("Bearer {TOKEN}"))
         .send("[\"_proxy\",\"x\"]");
@@ -225,6 +246,13 @@ fn authenticated_jobs_execute_only_in_server_storage() {
     assert!(source.starts_with("http://127.0.0.1:"));
     query(&source, "CREATE TABLE t(x INTEGER)");
     query(&source, "INSERT INTO t VALUES(1)");
+    run(&["stop", "fixture"]);
+    assert!(ureq::post(&source).send(r#"{"statements":[{"sql":"SELECT 1"}]}"#).is_err());
+    let stopped: serde_json::Value = serde_json::from_str(&run(&["list", "--format", "json"])).unwrap();
+    assert_eq!(stopped[0]["status"], "stopped");
+    run(&["start", "fixture"]);
+    assert_eq!(run(&["url", "fixture"]), source);
+    assert!(query(&source, "SELECT x FROM t").contains("[[1]]"));
     run(&["settings", "fixture", "set", "branch_sql", "CREATE TABLE initialized(x); INSERT INTO initialized VALUES(1)"]);
     run(&["prepare", "snap", "--from", "fixture", "--count", "2"]);
     run(&["settings", "fixture", "remove", "branch_sql"]);

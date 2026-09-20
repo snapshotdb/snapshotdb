@@ -20,9 +20,9 @@ export default function Page() {
       </table>
 
       <h2>Example</h2>
-      <pre className="code"><code><span className="c"># submit `list --format json`</span>{"\n"}<span className="p">$</span> curl -sX POST $SNAPSHOTDB_SERVER/v1/commands \{"\n"}    -H &quot;Authorization: Bearer $SNAPSHOTDB_TOKEN&quot; -H &apos;Content-Type: application/json&apos; \{"\n"}    -d &apos;[&quot;list&quot;,&quot;--format&quot;,&quot;json&quot;]&apos;{"\n"}{"{"} &quot;id&quot;: &quot;job_…&quot;, &quot;state&quot;: &quot;queued&quot; {"}"}{"\n\n"}<span className="p">$</span> curl -s $SNAPSHOTDB_SERVER/v1/jobs/job_… -H &quot;Authorization: Bearer $SNAPSHOTDB_TOKEN&quot;</code></pre>
+      <pre className="code"><code><span className="c"># submit `list --format json`</span>{"\n"}<span className="p">$</span> curl -sX POST $SNAPSHOTDB_SERVER/v1/commands \{"\n"}    -H &quot;Authorization: Bearer $SNAPSHOTDB_TOKEN&quot; -H &apos;Content-Type: application/json&apos; \{"\n"}    -d &apos;[&quot;list&quot;,&quot;--format&quot;,&quot;json&quot;]&apos;{"\n"}{"{"} &quot;id&quot;: &quot;&lt;id&gt;&quot;, &quot;state&quot;: &quot;queued&quot; {"}"}{"\n\n"}<span className="p">$</span> curl -s $SNAPSHOTDB_SERVER/v1/jobs/&lt;id&gt; -H &quot;Authorization: Bearer $SNAPSHOTDB_TOKEN&quot;</code></pre>
 
-      <p>Allowed commands over the API are the branch and source lifecycle: <code>preflight, clone, sync, import, create, info, url, switch, list, status, repair, reconcile, reset, settings, lock, unlock, start, stop, rm</code>.</p>
+      <p>Allowed commands over the API are the branch and source lifecycle: <code>preflight, clone, sync, import, create, prepare, info, url, switch, list, status, repair, reconcile, reset, settings, lock, unlock, start, stop, rm</code>.</p>
 
       <div className="note"><b>Why one endpoint, not dozens:</b> a multi-tenant managed service needs many resource routes (projects, connectors, branches, operations, api-keys, orgs). snapshotdb is a single self-hosted server with no tenancy, so it exposes one generic job endpoint instead — every capability, without the multi-tenant surface.</div>
 

@@ -17,7 +17,7 @@ export default function Stats() {
     const el = root.current;
     if (!el) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduce) { setP(1); return; }
+    if (reduce) { const frame = requestAnimationFrame(() => setP(1)); return () => cancelAnimationFrame(frame); }
     let anim = 0;
     let started = false;
     const start = () => {
@@ -53,8 +53,8 @@ export default function Stats() {
       <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
       <div className="statband-lead">
         <span className="lbl">the number that matters</span>
-        <h2>A terabyte,<br />branched in <span className="hot">~{(1.0 * p).toFixed(1)}s</span>.</h2>
-        <p className="foot">*a copy-on-write clone — branch time is independent of database size.</p>
+        <h2>A terabyte,<br />ready in <span className="hot">{Math.round(94 * p)}ms</span>.</h2>
+        <p className="foot">Prepared PostgreSQL branch · 94.1 ms median through read/write in the September 2026 benchmark. Initial replication and pool preparation excluded. <a href="/docs/faq">Measurement details →</a></p>
       </div>
       <div className="statrow">
         {FIGS.map((f) => (

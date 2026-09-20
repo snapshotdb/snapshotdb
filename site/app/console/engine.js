@@ -1,9 +1,10 @@
-// @ts-nocheck
 /* eslint-disable */
-// Console engine — ported verbatim from the standalone console (imperative DOM).
-// Wrapped so React can initialize it on mount and clear its polling interval on unmount.
+// Browser-only imperative console. React owns mounting; this module owns its DOM and requests.
 export function initConsole() {
   const __timers = [];
+  let disposed = false;
+  let connection = new AbortController();
+  const lifecycle = new AbortController();
   const setInterval = (...a) => { const id = globalThis.setInterval(...a); __timers.push(id); return id; };
 const $=(s,r=document)=>r.querySelector(s); const $$=(s,r=document)=>[...r.querySelectorAll(s)];
 const el=(t,a={},...k)=>{const n=document.createElement(t);for(const[x,v]of Object.entries(a)){
@@ -22,60 +23,71 @@ const apiURL=p=>(cfg.base.replace(/\/$/,''))+p;
 
 /* ---------- API: POST a command, poll the job ---------- */
 async function raw(path,opts={}){
-  const r=await fetch(apiURL(path),{...opts,headers:{'Authorization':'Bearer '+cfg.token,...(opts.headers||{})}});
+  const r=await fetch(apiURL(path),{...opts,redirect:'error',signal:AbortSignal.any([lifecycle.signal,connection.signal,AbortSignal.timeout(15000)]),headers:{'Authorization':'Bearer '+cfg.token,...(opts.headers||{})}});
   return r;
 }
 async function health(){
   const r=await raw('/v1/health'); if(!r.ok)throw new Error('HTTP '+r.status);
   return r.json();
 }
-async function cmd(args){
+async function cmd(args,allowedExitCodes=[0]){
+  const requestConnection=connection;
   const r=await raw('/v1/commands',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(args)});
   if(r.status===401)throw new Error('unauthorized — check the access token');
   if(!r.ok){let m='HTTP '+r.status;try{m=(await r.json()).error||m}catch{}throw new Error(m);}
   const {id}=await r.json();
   for(let i=0;i<600;i++){
     await new Promise(z=>setTimeout(z,i<10?150:400));
-    const jr=await raw('/v1/jobs/'+id); if(!jr.ok)continue;
+    if(disposed||requestConnection!==connection)throw new Error('Connection changed');
+    const jr=await raw('/v1/jobs/'+id); if(!jr.ok)throw new Error(jr.status===401?'unauthorized — check the access token':'Job lookup failed: HTTP '+jr.status);
     const j=await jr.json();
     if(j.state==='done'){
-      if(j.exit_code!==0)throw new Error((j.stderr||j.stdout||'command failed').trim());
+      if(!allowedExitCodes.includes(j.exit_code))throw new Error((j.stderr||j.stdout||'command failed').trim());
       return (j.stdout||'').trim();
     }
   }
   throw new Error('timed out waiting for the server job');
 }
-const cmdJSON=async a=>{const s=await cmd([...a,'--format','json']);return JSON.parse(s||'null');};
+const cmdJSON=async (a,allowedExitCodes)=>{const s=await cmd([...a,'--format','json'],allowedExitCodes);return JSON.parse(s||'null');};
 
 /* ---------- toast ---------- */
 function toast(kind,title,msg){
+  if(disposed)return;
   const t=el('div',{class:'toast '+kind},el('div',{class:'t'},title),msg?el('div',{class:'m'},msg):null);
   $('#toasts').append(t); setTimeout(()=>{t.style.transition='.3s';t.style.opacity='0';setTimeout(()=>t.remove(),300)},kind==='err'?7000:3800);
 }
 
 /* ---------- state ---------- */
-let branches=[]; let statusCache={}; let pollTimer=null;
+let branches=[]; let statusCache={}; let loadId=0;
 
 async function load(){
+  const id=++loadId;
   try{
     const h=await health();
+    if(disposed||id!==loadId)return;
     $('#ver').textContent='v'+(h.version||'?');
     $('#healthDot').className='dot ok'; $('#healthText').textContent=(cfg.base||'same origin')+' · online';
   }catch(e){
+    if(disposed||id!==loadId)return;
     $('#healthDot').className='dot bad'; $('#healthText').textContent='offline';
     return renderDisconnected(e.message);
   }
   try{
-    branches=await cmdJSON(['list'])||[];
-  }catch(e){ return renderDisconnected(e.message); }
+    const next=await cmdJSON(['list'])||[];
+    if(disposed||id!==loadId)return;
+    branches=next;
+  }catch(e){ if(disposed||id!==loadId)return; return renderDisconnected(e.message); }
   render();
   // fetch replication status for synced sources
   for(const b of branches.filter(x=>x.synced)){
-    cmdJSON(['status',b.name]).then(s=>{statusCache[b.name]=s;patchSource(b.name);}).catch(()=>{});
+    cmdJSON(['status',b.name]).then(s=>{if(disposed)return;statusCache[b.name]=s;patchSource(b.name);}).catch(()=>{});
   }
 }
 
 function renderDisconnected(msg){
+  if(disposed)return;
+  branches=[];statusCache={};
+  $('#healthDot').className='dot bad'; $('#healthText').textContent='not connected';
   $('#stage').replaceChildren(el('div',{class:'empty'},
     el('h3',{},'Not connected'),
     el('p',{},msg||'Set the server address and access token.'),
@@ -83,8 +95,8 @@ function renderDisconnected(msg){
 }
 
 function groupBranches(){
-  const roots=branches.filter(b=>!b.parent||b.parent==='-');
-  const kids=p=>branches.filter(b=>b.parent===p);
+  const roots=branches.filter(b=>!b.parent||b.parent==='-'||!branches.some(p=>p.name===b.parent));
+  const kids=(p,seen=new Set([p]))=>branches.filter(b=>b.parent===p&&!seen.has(b.name)).flatMap(b=>[b,...kids(b.name,new Set([...seen,b.name]))]);
   return {roots,kids};
 }
 
@@ -123,6 +135,8 @@ function sourceCard(r,kids){
     actions.append(btn('sm','repair',()=>run(['repair',r.name],'Repairing '+r.name)));
     if(r.engine==='postgres')actions.append(btn('sm','reconcile',()=>run(['reconcile',r.name],'Reconciling '+r.name)));
   }
+  actions.append(btn('sm','open',()=>revealURL(r.name)));
+  if(!r.synced)actions.append(btn('sm',r.status==='running'?'stop':'start',()=>run([r.status==='running'?'stop':'start',r.name],'Updating '+r.name)));
   actions.append(btn('sm','settings',()=>openSettings(r.name)));
   actions.append(btn('sm','+ branch',()=>openNewBranch(r.name),'primary'));
   actions.append(btn('sm',r.locked?'unlock':'lock',()=>run([r.locked?'unlock':'lock',r.name],(r.locked?'Unlocking ':'Locking ')+r.name)));
@@ -176,18 +190,20 @@ function branchRow(k){
   const led=el('span',{class:'stateled '+stateClass(k)});
   const row=el('div',{class:'brow'});
   row.append(led,el('span',{class:'bname'},k.name),
-    el('span',{class:'tag'},k.engine==='sqlite'?'file':k.status),
+    el('span',{class:'tag'},k.status+' · from '+k.parent),
     el('span',{class:'spacer'}));
-  if(k.engine!=='sqlite'||k.url)row.append(btn('sm','copy url',()=>copyURL(k.name)));
-  row.append(btn('sm','open',()=>revealURL(k.name)));
-  if(k.status==='running')row.append(btn('sm ghost','stop',()=>run(['stop',k.name],'Suspending '+k.name)));
-  row.append(btn('sm ghost','reset',()=>run(['reset',k.name],'Resetting '+k.name)));
+  if(k.status!=='snapshot'&&(k.engine!=='sqlite'||k.url))row.append(btn('sm','copy url',()=>copyURL(k.name)));
+  if(k.status!=='snapshot')row.append(btn('sm','open',()=>revealURL(k.name)));
+  if(k.status!=='snapshot')row.append(btn('sm ghost',k.status==='running'?'stop':'start',()=>run([k.status==='running'?'stop':'start',k.name],'Updating '+k.name)));
+  row.append(btn('sm ghost','+ branch',()=>openNewBranch(k.name)));
+  row.append(btn('sm ghost',k.locked?'unlock':'lock',()=>run([k.locked?'unlock':'lock',k.name],'Updating lock '+k.name)));
+  if(k.status!=='snapshot'&&!branches.some(b=>b.name===k.parent&&b.status==='snapshot'))row.append(btn('sm ghost','reset',()=>run(['reset',k.name],'Resetting '+k.name)));
   row.append(btn('sm ghost danger','rm',()=>confirmDelete(k.name,false)));
   return row;
 }
 
 function btn(cls,label,fn,extra=''){return el('button',{class:'btn '+cls+(extra?' '+extra:''),onclick:fn},label);}
-const cssid=s=>s.replace(/[^a-z0-9]/gi,'_');
+const cssid=s=>Array.from(s,c=>c.codePointAt(0).toString(16)).join('-');
 
 /* ---------- actions ---------- */
 async function run(args,verb){
@@ -201,8 +217,14 @@ async function copyURL(name){
 }
 
 /* ---------- modals ---------- */
-function modal(node){ const scrim=el('div',{class:'scrim',onclick:e=>{if(e.target===scrim)scrim.remove();}},node);
-  $('#modalHost').append(scrim); return scrim; }
+function modal(node){ if(disposed)return document.createElement('div');
+  node.setAttribute('role','dialog');node.setAttribute('aria-modal','true');
+  const title=node.querySelector('h3');if(title)node.setAttribute('aria-label',title.textContent);
+  node.querySelectorAll('label').forEach((label,i)=>{const field=label.nextElementSibling;if(field&&/INPUT|SELECT|TEXTAREA/.test(field.tagName)){field.id='modal-field-'+i;label.htmlFor=field.id;}});
+  const prior=document.activeElement;
+  const scrim=el('div',{class:'scrim',onclick:e=>{if(e.target===scrim)scrim.remove();}},node);
+  scrim.addEventListener('keydown',e=>{if(e.key==='Escape'){scrim.remove();prior?.focus();}if(e.key==='Tab'){const fields=[...node.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled)')];const first=fields[0],last=fields.at(-1);if(e.shiftKey&&document.activeElement===first){e.preventDefault();last?.focus();}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first?.focus();}}});
+  $('#modalHost').replaceChildren(scrim); node.querySelector('input,select,button')?.focus(); return scrim; }
 function foot(...b){return el('div',{class:'foot'},...b);}
 
 function openConn(){
@@ -215,33 +237,41 @@ function openConn(){
       el('label',{},'Access token'),tok,
       el('div',{class:'hint'},'Stored only in this browser (localStorage). Never sent anywhere but your server.')),
     foot(el('button',{class:'btn ghost',onclick:()=>m.remove()},'Cancel'),
-      el('button',{class:'btn primary',onclick:()=>{cfg.base=base.value.trim();cfg.token=tok.value.trim();m.remove();load();}},'Save & connect'))));
+      el('button',{class:'btn primary',onclick:()=>{try{const value=base.value.trim();if(value){const u=new URL(value);if(!['http:','https:'].includes(u.protocol)||u.username||u.password||u.search||u.hash)throw new Error('Use an http(s) server address without credentials, query, or fragment');if(location.protocol==='https:'&&u.protocol!=='https:'&&!['localhost','127.0.0.1','[::1]'].includes(u.hostname))throw new Error('An HTTPS console needs an HTTPS server');}cfg.base=value;cfg.token=tok.value.trim();connection.abort();connection=new AbortController();statusCache={};branches=[];m.remove();load();}catch(e){toast('err','Could not save connection',e.message);}}},'Save & connect'))));
 }
 
 function openNewSource(){
-  const engine=el('select',{},...['postgres','mysql','mongodb'].map(e=>el('option',{value:e},e)));
+  let revision=0;let approved=-1;let busy=false;
+  const engine=el('select',{},...['postgres','mysql','mongodb','sqlite'].map(e=>el('option',{value:e},e)));
   const name=el('input',{placeholder:'source name, e.g. prod'});
   const url=el('input',{placeholder:'postgresql://user:pass@host:5432/db'});
   const schemas=el('input',{placeholder:'public  (postgres only, comma-separated)',value:'public'});
   const result=el('div');
   const preBtn=el('button',{class:'btn',onclick:doPreflight},'Run preflight');
   const cloneBtn=el('button',{class:'btn primary',disabled:'',onclick:doClone},'Clone source');
+  const invalidate=()=>{revision++;approved=-1;cloneBtn.disabled=engine.value!=='sqlite';preBtn.hidden=engine.value==='sqlite';url.disabled=engine.value==='sqlite';schemas.disabled=engine.value!=='postgres';result.replaceChildren();};
+  [engine,name,url,schemas].forEach(input=>input.addEventListener('input',invalidate));
   async function doPreflight(){
+    if(busy)return;busy=true;preBtn.disabled=true;cloneBtn.disabled=true;approved=-1;
+    const current=revision;
     result.replaceChildren(el('div',{style:'color:var(--muted)'},el('span',{class:'spin'}),' preflighting…'));
     try{
-      const rep=await cmdJSON(['preflight',engine.value,url.value.trim(),...(engine.value==='postgres'?['--schemas',schemas.value.trim()||'public']:[])]);
-      renderChecklist(result,rep); cloneBtn.disabled=!rep.passed;
-    }catch(e){ result.replaceChildren(el('div',{class:'check fail'},el('span',{class:'m'},'✗'),el('div',{},el('div',{class:'n'},'preflight error'),el('div',{class:'fix'},e.message)))); }
+      const rep=await cmdJSON(['preflight',engine.value,url.value.trim(),...(engine.value==='postgres'?['--schemas',schemas.value.trim()||'public']:[])],[0,2]);
+      if(current!==revision)return;
+      renderChecklist(result,rep);approved=rep.passed?current:-1; cloneBtn.disabled=!rep.passed;
+    }catch(e){ result.replaceChildren(el('div',{class:'check fail'},el('span',{class:'m'},'✗'),el('div',{},el('div',{class:'n'},'preflight error'),el('div',{class:'fix'},e.message)))); }finally{busy=false;preBtn.disabled=false;}
   }
   async function doClone(){
+    if(busy)return;
+    if(engine.value!=='sqlite'&&approved!==revision)return toast('err','Run preflight again','Source settings have changed.');
     if(!name.value.trim())return toast('err','Name required');
-    m.remove(); toast('ok','Cloning '+name.value+'…','initial copy runs in the background');
-    try{ const out=await cmd(['clone',name.value.trim(),url.value.trim()]); toast('ok','Source '+name.value+' created',out); await load(); }
+    busy=true;m.remove(); toast('ok','Creating '+name.value+'…');
+    try{ const args=engine.value==='sqlite'?['import','sqlite',name.value.trim(),'--new']:['sync',engine.value,name.value.trim(),url.value.trim(),...(engine.value==='postgres'?['--schemas',schemas.value.trim()||'public']:[])];const out=await cmd(args); toast('ok','Source '+name.value+' created',out); await load(); }
     catch(e){ toast('err','Clone failed',e.message); }
   }
   const m=modal(el('div',{class:'modal'},
     el('h3',{},'New source'),
-    el('div',{class:'sub'},'Preflight checks the database read-only and prints exactly what to fix. Nothing is created until you clone.'),
+    el('div',{class:'sub'},'Preflight checks a live database before cloning. SQLite creates an empty source you can populate using its connection URL.'),
     el('div',{class:'body'},
       el('div',{class:'row2'},el('div',{},el('label',{},'Engine'),engine),el('div',{},el('label',{},'Name'),name)),
       el('label',{style:'margin-top:14px'},'Connection string'),url,
@@ -267,7 +297,7 @@ function openNewBranch(from){
   const name=el('input',{placeholder:'branch name, e.g. fix-orders'});
   const m=modal(el('div',{class:'modal'},
     el('h3',{},'New branch'),
-    el('div',{class:'sub'},'Copy-on-write clone of '+esc(from)+' with its own server and credentials. Ready in seconds regardless of size.'),
+    el('div',{class:'sub'},'Copy-on-write clone of '+esc(from)+' with its own server and credentials. Prepared pools avoid waiting for a cold database startup.'),
     el('div',{class:'body'},el('label',{},'Branch name'),name,
       el('div',{class:'hint'},'1–40 chars: letters, digits, - _ . — not starting with . or _')),
     foot(el('button',{class:'btn ghost',onclick:()=>m.remove()},'Cancel'),
@@ -329,7 +359,7 @@ async function revealURL(name){
     el('div',{class:'sub'},'Use exactly as shown. This branch URL has no access to production.'),
     el('div',{class:'body'},inp),
     foot(el('button',{class:'btn ghost',onclick:()=>m.remove()},'Close'),
-      el('button',{class:'btn primary',onclick:()=>{navigator.clipboard.writeText(u);toast('ok','Copied');}},'Copy'))));
+      el('button',{class:'btn primary',onclick:async()=>{try{await navigator.clipboard.writeText(u);toast('ok','Copied');}catch{inp.select();toast('err','Copy failed','Select and copy the URL manually.');}}},'Copy'))));
   setTimeout(()=>inp.select(),50);
 }
 
@@ -337,7 +367,8 @@ async function revealURL(name){
 $('#connBtn').onclick=openConn;
 $('#newSourceBtn').onclick=openNewSource;
 $('#refreshBtn').onclick=load;
-window.addEventListener('keydown',e=>{if(e.key==='r'&&!/input|select|textarea/i.test(document.activeElement.tagName))load();});
+const onKey=e=>{if(e.key==='r'&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&!document.activeElement.isContentEditable&&!/input|select|textarea/i.test(document.activeElement.tagName))load();};
+window.addEventListener('keydown',onKey);
 function openNewSourceGuard(){ if(!cfg.token&&!cfg.base){openConn();}else openNewSource(); }
 $('#newSourceBtn').onclick=openNewSourceGuard;
 
@@ -363,9 +394,9 @@ $('#navSettings').onclick=()=>{const roots=branches.filter(b=>!b.parent||b.paren
 // live refresh of statuses every 6s (only status calls, cheap)
 setInterval(()=>{ if($('#healthDot').classList.contains('ok'))
   for(const b of branches.filter(x=>x.synced))
-    cmdJSON(['status',b.name]).then(s=>{statusCache[b.name]=s;patchSource(b.name);}).catch(()=>{});
+    cmdJSON(['status',b.name]).then(s=>{if(disposed)return;statusCache[b.name]=s;patchSource(b.name);}).catch(()=>{});
 },6000);
 
 load();
-  return () => { __timers.forEach((id) => clearInterval(id)); };
+  return () => { disposed=true;lifecycle.abort();connection.abort();window.removeEventListener('keydown',onKey);__timers.forEach((id) => clearInterval(id));$('#modalHost')?.replaceChildren(); };
 }

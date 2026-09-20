@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from "next/server";
 export async function GET(req: NextRequest) {
   const port = req.nextUrl.searchParams.get("port") || "";
   const state = req.nextUrl.searchParams.get("state") || "";
-  if (!/^\d{2,5}$/.test(port)) {
+  if (!/^\d{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535 || !/^[a-f0-9]{32}$/.test(state)) {
     return NextResponse.redirect(new URL("/console?error=cli_port", req.url));
   }
   const res = NextResponse.redirect(new URL("/api/auth/github", req.url));

@@ -31,13 +31,23 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 url="$BASE_URL/$asset"
 
-curl -fsSL "$url" -o "$tmp/$BIN" || err "download failed: $url"
+curl -fsSL "$url" -o "$tmp/$asset" || err "download failed: $url"
+curl -fsSL "$BASE_URL/SHA256SUMS.txt" -o "$tmp/SHA256SUMS.txt" || err "checksum download failed"
+awk -v asset="$asset" '$2 == asset {print}' "$tmp/SHA256SUMS.txt" > "$tmp/checksum"
+[ "$(wc -l < "$tmp/checksum" | tr -d ' ')" = 1 ] || err "missing or duplicate checksum for $asset"
+if command -v sha256sum >/dev/null 2>&1; then
+  (cd "$tmp" && sha256sum -c checksum) || err "checksum mismatch"
+else
+  (cd "$tmp" && shasum -a 256 -c checksum) || err "checksum mismatch"
+fi
+mv "$tmp/$asset" "$tmp/$BIN"
 chmod +x "$tmp/$BIN"
 
 if [ -w "$PREFIX" ]; then
   mv "$tmp/$BIN" "$PREFIX/$BIN"
 else
   say "writing to $PREFIX (needs sudo)"
+  sudo mkdir -p "$PREFIX"
   sudo mv "$tmp/$BIN" "$PREFIX/$BIN"
 fi
 

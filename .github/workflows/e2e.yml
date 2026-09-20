@@ -1,6 +1,22 @@
 name: e2e
 on: [push, pull_request]
 jobs:
+  site:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
   linux-btrfs:
     runs-on: ubuntu-24.04
     steps:
@@ -8,6 +24,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Btrfs volume for copy-on-write clones
         run: |
+          sudo apt-get update -qq
           sudo apt-get install -y -qq bubblewrap btrfs-progs >/dev/null
           truncate -s 4G /tmp/btrfs.img && sudo mkfs.btrfs -q /tmp/btrfs.img
           sudo mkdir -p /mnt/snapshotdb && sudo mount -o loop /tmp/btrfs.img /mnt/snapshotdb

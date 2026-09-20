@@ -913,6 +913,15 @@ impl Branch {
     /// Suspend: stop the engine (and tailer). The proxy stays, so the URL keeps working and
     /// the next connection resumes the engine.
     pub fn stop(&self) -> R<()> {
+        // SQLite has no engine process to suspend; stop its HTTP endpoint instead.
+        if self.engine == Engine::Sqlite {
+            let _lock = sqlite::lock(self)?;
+            if let Some(pid) = live_pid(&self.run().join("proxypid")) {
+                sh(Command::new("kill").args(["-TERM", &pid.to_string()]))?;
+                wait(|| !alive(pid), 10, "SQLite endpoint to stop")?;
+            }
+            return Ok(());
+        }
         self.kill_tail();
         let Some(pid) = self.pid() else { return Ok(()) };
         if self.engine == Engine::Postgres && self.source().is_some() {

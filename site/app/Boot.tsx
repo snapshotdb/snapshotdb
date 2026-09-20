@@ -6,7 +6,7 @@ const STEPS = ["mounting replica", "probing engines", "warming branch pool", "re
 
 // Retro boot loader — plays once per tab, then fades to reveal the page.
 export default function Boot() {
-  const [show, setShow] = useState(true);
+  const [show, setShow] = useState(false);
   const [pct, setPct] = useState(0);
   const [out, setOut] = useState(false);
 
@@ -14,7 +14,10 @@ export default function Boot() {
     let played = false;
     try { played = sessionStorage.getItem("sdb_booted") === "1"; } catch {}
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (played || reduce) { setShow(false); return; }
+    if (played || reduce) return;
+    const frame = window.requestAnimationFrame(() => setShow(true));
+    const previousOverflow = document.documentElement.style.overflow;
+    const timers: number[] = [];
 
     document.documentElement.style.overflow = "hidden";
     let p = 0;
@@ -24,11 +27,11 @@ export default function Boot() {
       if (p >= 100) {
         window.clearInterval(iv);
         try { sessionStorage.setItem("sdb_booted", "1"); } catch {}
-        window.setTimeout(() => setOut(true), 350);
-        window.setTimeout(() => { document.documentElement.style.overflow = ""; setShow(false); }, 1000);
+        timers.push(window.setTimeout(() => setOut(true), 350));
+        timers.push(window.setTimeout(() => { document.documentElement.style.overflow = previousOverflow; setShow(false); }, 1000));
       }
     }, 190);
-    return () => { window.clearInterval(iv); document.documentElement.style.overflow = ""; };
+    return () => { window.cancelAnimationFrame(frame); window.clearInterval(iv); timers.forEach(window.clearTimeout); document.documentElement.style.overflow = previousOverflow; };
   }, []);
 
   if (!show) return null;

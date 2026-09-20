@@ -28,7 +28,7 @@ export default function Term() {
     const el = ref.current;
     if (!el) return;
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduce) { setN(CHARS.length); return; }
+    if (reduce) { const frame = requestAnimationFrame(() => setN(CHARS.length)); return () => cancelAnimationFrame(frame); }
     let iv = 0;
     let started = false;
     const begin = () => {

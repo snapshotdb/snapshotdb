@@ -24,6 +24,7 @@ pub fn lock(b: &Branch) -> R<Option<fs::File>> {
 }
 
 pub fn url(b: &Branch) -> R<String> {
+    if !b.proxy_alive() { return Err("SQLite endpoint is stopped; start the branch first".into()); }
     let host = env::var("SNAPSHOTDB_PUBLIC_HOST").unwrap_or_else(|_| "127.0.0.1".into());
     Ok(format!(
         "http://{host}:{}/v1/query?token={}",

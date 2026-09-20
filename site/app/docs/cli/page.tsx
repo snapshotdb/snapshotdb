@@ -26,6 +26,7 @@ export default function Page() {
         <thead><tr><th>Command</th><th>What it does</th></tr></thead>
         <tbody>
           <tr><td><code>create &lt;name&gt; --from &lt;parent&gt; [--print-url] [--format json]</code></td><td>Copy-on-write branch of a root or another branch. Idempotent.</td></tr>
+          <tr><td><code>prepare &lt;snapshot&gt; --from &lt;parent&gt; --count &lt;1-32&gt;</code></td><td>Prepare an immutable snapshot and ready branch pool. Claim with <code>create --from &lt;snapshot&gt;</code>; preparation happens ahead of the claim.</td></tr>
           <tr><td><code>info [name] [--print-url] [--format json]</code></td><td>Details of a branch (default: current).</td></tr>
           <tr><td><code>url [name]</code> · <code>switch &lt;name&gt;</code></td><td>Full connection URL · make a branch current.</td></tr>
           <tr><td><code>reset &lt;name&gt;</code></td><td>Throw away changes, re-clone from the parent.</td></tr>
@@ -41,7 +42,7 @@ export default function Page() {
       <p><code>branch_sql</code> hooks run once per new branch, in hook-name order; multiple hooks coexist via <code>--hook</code>.</p>
 
       <h2>Server</h2>
-      <p><code>serve</code>, <code>up</code> (restore branches after a reboot), and <code>service install|uninstall</code> (run <code>up</code> at login). See <a href="/docs/server">Server deployment</a>.</p>
+      <p><code>serve</code> starts the authenticated API and restores existing branches. Run it under a service manager for automatic startup. See <a href="/docs/server">Server deployment</a>.</p>
 
       <div className="np"><a href="/docs/security">← Security</a><a className="n" href="/docs/configuration">Configuration →</a></div>
     </>
