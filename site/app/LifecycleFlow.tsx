@@ -30,24 +30,24 @@ export default function LifecycleFlow() {
   const stage = STAGES[active];
 
   return (
-    <div className="flow">
-      <div className="flow-rail" role="tablist" aria-label="Stages of a branch">
-        <div className="flow-line"><i style={{ width: `${(active / (STAGES.length - 1)) * 100}%` }} /></div>
+    <div className="stepper">
+      <div className="stepper-rail" role="tablist" aria-label="Stages of a branch">
+        <div className="stepper-line"><i style={{ width: `${(active / (STAGES.length - 1)) * 100}%` }} /></div>
         {STAGES.map((s, i) => (
           <button
             key={s.k}
             role="tab"
             aria-selected={i === active}
-            className={"flow-stop" + (i === active ? " active" : i < active ? " done" : "")}
+            className={"stepper-stop" + (i === active ? " active" : i < active ? " done" : "")}
             onClick={() => setActive(i)}
           >
-            <span className="flow-dot" />
-            <span className="flow-k">{s.k}</span>
+            <span className="stepper-dot" />
+            <span className="stepper-k">{s.k}</span>
           </button>
         ))}
       </div>
-      <div className="flow-panel">
-        <svg className="flow-icon" viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">{stage.icon}</svg>
+      <div className="stepper-panel">
+        <svg className="stepper-icon" viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">{stage.icon}</svg>
         <h3>It <em>{stage.h}</em></h3>
         <p>{stage.body}</p>
       </div>
