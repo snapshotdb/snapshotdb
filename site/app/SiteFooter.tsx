@@ -55,12 +55,15 @@ export default function SiteFooter() {
       cv.height = Math.max(1, Math.round(H * DPR));
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
     };
-    const draw = (ax: number, ay: number) => {
+    const draw = (time: number, ax: number, ay: number) => {
       if (!W || !H) return;
       ctx.clearRect(0, 0, W, H);
-      const scale = Math.min(W, H) * 0.36, cd = 5.4;
-      const P = V.map((p) => {
-        const q = rotX(rotY(p, ay), ax);
+      const scale = Math.min(W * 0.22, H * 0.23), cd = 5.4;
+      const twist = 0.14 * Math.sin(time * 0.42);
+      const P = V.map((p, i) => {
+        // Opposing top/bottom rotation gently skews the original wireframe.
+        const warped = rotY(p, p[1] * twist + (i >= 8 ? Math.sin(time * 0.3) * 0.18 : 0));
+        const q = rotX(rotY(warped, ay), ax);
         const f = cd / (cd - q[2]);
         return [W / 2 + q[0] * scale * f, H / 2 + q[1] * scale * f, q[2]];
       });
@@ -68,9 +71,8 @@ export default function SiteFooter() {
       ctx.setLineDash([3, 5]);
       for (const [i, j] of E) {
         const a = P[i], b = P[j];
-        let t = ((a[2] + b[2]) / 2 + 2.1) / 4.2;
-        t = t < 0 ? 0 : t > 1 ? 1 : t;
-        ctx.strokeStyle = `rgba(239,233,223,${(0.16 + 0.64 * t).toFixed(3)})`;
+        const depth = Math.max(0, Math.min(1, ((a[2] + b[2]) / 2 + 2.1) / 4.2));
+        ctx.strokeStyle = `rgba(239,233,223,${0.16 + 0.54 * depth})`;
         ctx.beginPath();
         ctx.moveTo(a[0], a[1]);
         ctx.lineTo(b[0], b[1]);
@@ -78,38 +80,44 @@ export default function SiteFooter() {
       }
     };
 
-    let mx = 0, my = 0;
+    let mx = 0, my = 0, visible = false, raf = 0, last = 0, elapsed = 0;
+    let tiltX = -0.36, tiltY = 0;
     const onMove = (e: PointerEvent) => {
-      mx = e.clientX / window.innerWidth - 0.5;
-      my = e.clientY / window.innerHeight - 0.5;
+      const bounds = cv.getBoundingClientRect();
+      mx = Math.max(-0.5, Math.min(0.5, (e.clientX - bounds.left) / bounds.width - 0.5));
+      my = Math.max(-0.5, Math.min(0.5, (e.clientY - bounds.top) / bounds.height - 0.5));
     };
-    window.addEventListener("pointermove", onMove, { passive: true });
-
+    cv.parentElement?.addEventListener("pointermove", onMove, { passive: true });
+    const loop = (now: number) => {
+      const dt = last ? Math.min((now - last) / 1000, 0.05) : 0;
+      last = now;
+      elapsed += dt;
+      const ease = 1 - Math.exp(-dt * 5);
+      tiltX += ((-0.36 + my * 0.22) - tiltX) * ease;
+      tiltY += ((mx * 0.25) - tiltY) * ease;
+      draw(elapsed, tiltX, 0.65 + elapsed * 0.12 + tiltY);
+      raf = requestAnimationFrame(loop);
+    };
     const ro = new ResizeObserver(() => {
       size();
-      if (reduce) draw(-0.3, 0.7);
+      draw(reduce ? 5 : elapsed, tiltX, 0.65 + elapsed * 0.12 + tiltY);
     });
     ro.observe(cv);
+    const io = new IntersectionObserver(([entry]) => {
+      visible = entry.isIntersecting;
+      cancelAnimationFrame(raf);
+      last = 0;
+      if (visible && !reduce) raf = requestAnimationFrame(loop);
+    });
+    io.observe(cv);
     size();
-
-    let raf = 0, spin = 0.7, tiltX = -0.3, tiltY = 0;
-    if (reduce) {
-      draw(-0.3, 0.7);
-    } else {
-      const loop = () => {
-        spin += 0.002;
-        tiltX += ((-0.3 + my * 0.5) - tiltX) * 0.06;
-        tiltY += ((mx * 0.7) - tiltY) * 0.06;
-        draw(tiltX, spin + tiltY);
-        raf = requestAnimationFrame(loop);
-      };
-      raf = requestAnimationFrame(loop);
-    }
+    draw(reduce ? 5 : 0, tiltX, 0.65);
 
     return () => {
       cancelAnimationFrame(raf);
       ro.disconnect();
-      window.removeEventListener("pointermove", onMove);
+      io.disconnect();
+      cv.parentElement?.removeEventListener("pointermove", onMove);
     };
   }, []);
 
@@ -121,8 +129,10 @@ export default function SiteFooter() {
       <div className="sf-stage">
         <canvas ref={ref} aria-hidden="true" />
         <div className="sf-word">
-          <Logo fill="var(--white)" />
-          <span className="w">snapshot<em>db</em></span>
+          <div className="sf-lockup">
+            <Logo fill="var(--white)" />
+            <span className="w">snapshot<em>db</em></span>
+          </div>
         </div>
       </div>
 

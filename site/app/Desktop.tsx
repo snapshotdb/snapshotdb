@@ -27,28 +27,32 @@ function LiveClock() {
 
 type WinProps = {
   title: string;
-  init: { x: number; y: number };
-  w: number;
   className?: string;
   children: React.ReactNode;
 };
 
-function Win({ title, init, w, className, children }: WinProps) {
+function Win({ title, className, children }: WinProps) {
   const ref = useRef<HTMLDivElement>(null);
-  const pos = useRef({ ...init });
+  const pos = useRef({ x: 0, y: 0 });
   const drag = useRef<{ dx: number; dy: number } | null>(null);
 
   useEffect(() => {
     const el = ref.current;
-    if (el && window.matchMedia("(min-width: 761px)").matches) {
-      el.style.transform = `translate(${init.x}px, ${init.y}px)`;
-    }
-  }, [init.x, init.y]);
+    if (!el?.parentElement) return;
+    const resize = new ResizeObserver(() => {
+      pos.current = { x: 0, y: 0 };
+      drag.current = null;
+      el.style.transform = "";
+      el.classList.remove("grab");
+    });
+    resize.observe(el.parentElement);
+    return () => resize.disconnect();
+  }, []);
 
   const onDown = (e: React.PointerEvent) => {
     const el = ref.current;
     if (!el || !window.matchMedia("(min-width: 761px)").matches) return;
-    el.setPointerCapture(e.pointerId);
+    e.currentTarget.setPointerCapture(e.pointerId);
     el.style.zIndex = String(++zTop);
     el.classList.add("grab");
     drag.current = { dx: e.clientX - pos.current.x, dy: e.clientY - pos.current.y };
@@ -58,11 +62,11 @@ function Win({ title, init, w, className, children }: WinProps) {
     if (!el || !drag.current) return;
     const stage = el.parentElement;
     if (!stage) return;
-    const b = stage.getBoundingClientRect();
+    const gutter = parseFloat(getComputedStyle(stage).paddingLeft);
     let nx = e.clientX - drag.current.dx;
     let ny = e.clientY - drag.current.dy;
-    nx = Math.max(0, Math.min(nx, b.width - el.offsetWidth));
-    ny = Math.max(0, Math.min(ny, b.height - el.offsetHeight));
+    nx = Math.max(gutter - el.offsetLeft, Math.min(nx, stage.clientWidth - gutter - el.offsetLeft - el.offsetWidth));
+    ny = Math.max(gutter - el.offsetTop, Math.min(ny, stage.clientHeight - gutter - el.offsetTop - el.offsetHeight));
     pos.current = { x: nx, y: ny };
     el.style.transform = `translate(${nx}px, ${ny}px)`;
   };
@@ -72,13 +76,14 @@ function Win({ title, init, w, className, children }: WinProps) {
   };
 
   return (
-    <div className={"win" + (className ? " " + className : "")} ref={ref} style={{ width: w }}>
+    <div className={"win" + (className ? " " + className : "")} ref={ref}>
       <div
         className="win-bar"
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
         onPointerCancel={onUp}
+        onLostPointerCapture={onUp}
       >
         <span className="win-x" />
         <span className="win-t">{title}</span>
@@ -100,7 +105,7 @@ export default function Desktop() {
       <div className="desk-stage">
         <span className="tick tl" /><span className="tick tr" /><span className="tick bl" /><span className="tick br" />
 
-        <Win title="prod — source" init={{ x: 36, y: 40 }} w={262}>
+        <Win title="prod — source">
           <div className="chips"><span className="chip pg">postgres</span><span className="chip st">● in sync</span></div>
           <dl className="kv">
             <div><dt>stream</dt><dd>0 bytes behind</dd></div>
@@ -108,7 +113,7 @@ export default function Desktop() {
           </dl>
         </Win>
 
-        <Win title="branches (3)" init={{ x: 360, y: 40 }} w={300}>
+        <Win title="branches (3)">
           <ul className="brs">
             <li><span className="led run" /> dev<span className="port">:55036</span></li>
             <li><span className="led run" /> staging<span className="port">:55051</span></li>
@@ -116,19 +121,19 @@ export default function Desktop() {
           </ul>
         </Win>
 
-        <Win title="clock" init={{ x: 704, y: 40 }} w={216} className="win-clock">
+        <Win title="clock" className="win-clock">
           <LiveClock />
         </Win>
 
-        <Win title="engines" init={{ x: 36, y: 252 }} w={300}>
-          <div className="chips wrap">
+        <Win title="engines">
+          <div className="chips">
             <span className="chip">postgres</span><span className="chip">mysql</span>
             <span className="chip">mongodb</span><span className="chip">sqlite</span>
           </div>
           <div className="engnote">branched the same way</div>
         </Win>
 
-        <Win title="new branch" init={{ x: 360, y: 252 }} w={296} className="win-new">
+        <Win title="new branch" className="win-new">
           <div className="cmd">$ snapshotdb create fix-orders --from prod</div>
           <div className="ok">✓ ready in 0.5s · its own url</div>
         </Win>
