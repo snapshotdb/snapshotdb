@@ -23,9 +23,28 @@ export default function SiteFooter() {
       const c = Math.cos(a), s = Math.sin(a);
       return [p[0], p[1] * c - p[2] * s, p[1] * s + p[2] * c];
     };
-    const faces = [[0, 1, 2, 3], [4, 5, 6, 7], [0, 1, 5, 4],
-      [3, 2, 6, 7], [0, 3, 7, 4], [1, 2, 6, 5]];
-    const cells = Array.from({ length: 27 }, (_, i) => [i % 3 - 1, Math.floor(i / 3) % 3 - 1, Math.floor(i / 9) - 1]);
+    // A twisted nested cube (hypercube projection) — an outer box with a
+    // rotated inner box, joined corner-to-corner. Richer than a single cuboid.
+    const HX = 1.55, HY = 1.14, HZ = 1.14;
+    const outer: number[][] = [
+      [-HX, -HY, -HZ], [HX, -HY, -HZ], [HX, HY, -HZ], [-HX, HY, -HZ],
+      [-HX, -HY, HZ], [HX, -HY, HZ], [HX, HY, HZ], [-HX, HY, HZ],
+    ];
+    const s = 0.58;
+    const inner: number[][] = [
+      [-s, -s, -s], [s, -s, -s], [s, s, -s], [-s, s, -s],
+      [-s, -s, s], [s, -s, s], [s, s, s], [-s, s, s],
+    ].map((p) => rotX(rotY(p, 0.52), 0.34));
+    const V: number[][] = outer.concat(inner);
+    const face = (o: number): number[][] => [
+      [o, o + 1], [o + 1, o + 2], [o + 2, o + 3], [o + 3, o],
+      [o + 4, o + 5], [o + 5, o + 6], [o + 6, o + 7], [o + 7, o + 4],
+      [o, o + 4], [o + 1, o + 5], [o + 2, o + 6], [o + 3, o + 7],
+    ];
+    const E: number[][] = face(0).concat(
+      face(8),
+      [0, 1, 2, 3, 4, 5, 6, 7].map((i): number[] => [i, i + 8]),
+    );
 
     let W = 0, H = 0;
     const DPR = Math.min(window.devicePixelRatio || 1, 2);
@@ -39,89 +58,25 @@ export default function SiteFooter() {
     const draw = (time: number, ax: number, ay: number) => {
       if (!W || !H) return;
       ctx.clearRect(0, 0, W, H);
-      const scale = Math.min(W * 0.19, H * 0.25);
-      const project = (p: number[]) => {
-        const f = 6 / (6 - p[2]);
-        return [W / 2 + p[0] * scale * f, H / 2 + p[1] * scale * f, p[2]];
-      };
-      const stroke = (a: number[], b: number[], color: string, width = 1) => {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = width;
-        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
-      };
-      const split = (1 - Math.cos(time * Math.PI / 6)) / 2;
-      const spread = 0.2 + split * 0.8;
-      const source = [0, -0.82, 0];
-      const destinations = [[-1.72, 0.82, 0], [0, 1.04, 0.45], [1.72, 0.82, 0]];
-      const core = project(source);
-      const aura = ctx.createRadialGradient(core[0], core[1], 0, core[0], core[1], scale * 1.9);
-      aura.addColorStop(0, "rgba(229,83,63,0.12)");
-      aura.addColorStop(1, "rgba(229,83,63,0)");
-      ctx.fillStyle = aura;
-      ctx.fillRect(0, 0, W, H);
-      const clusters = [{ center: source, size: 1, alpha: 1, branch: false, index: 0 },
-        ...destinations.map((target, i) => ({
-          center: source.map((v, j) => v + (target[j] - v) * spread),
-          size: 0.54, alpha: 0.18 + split * 0.72, branch: true, index: i + 1,
-        }))];
-      // Packets follow the same curve as the tether; no detached decoration.
-      for (const cluster of clusters.slice(1)) {
-        const end = project(cluster.center);
-        const control = [end[0], core[1] + (end[1] - core[1]) * 0.25];
-        ctx.strokeStyle = `rgba(229,83,63,${cluster.alpha * 0.28})`;
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(core[0], core[1]);
-        ctx.quadraticCurveTo(control[0], control[1], end[0], end[1]); ctx.stroke();
-        for (let packet = 0; packet < 2; packet++) {
-          const t = (time * 0.32 + cluster.index * 0.2 + packet * 0.5) % 1;
-          const x = (1 - t) ** 2 * core[0] + 2 * (1 - t) * t * control[0] + t * t * end[0];
-          const y = (1 - t) ** 2 * core[1] + 2 * (1 - t) * t * control[1] + t * t * end[1];
-          ctx.shadowBlur = 10; ctx.shadowColor = "#e5533f";
-          ctx.fillStyle = `rgba(255,142,104,${cluster.alpha})`;
-          ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
-          ctx.shadowBlur = 0;
-        }
-      }
-      for (const cluster of clusters) {
-        const turn = ay + cluster.index * 0.65;
-        const gap = 0.37 + Math.sin(time * 0.52) ** 2 * 0.075;
-        const transform = (p: number[]) => {
-          const q = rotX(rotY(p, turn), ax);
-          return project(q.map((v, j) => v * cluster.size + cluster.center[j]));
-        };
-        const voxels = cells.map((cell) => {
-          const center = cell.map(v => v * gap);
-          const h = 0.145;
-          const points = [[-h,-h,-h],[h,-h,-h],[h,h,-h],[-h,h,-h],
-            [-h,-h,h],[h,-h,h],[h,h,h],[-h,h,h]].map(p => transform(p.map((v,j) => v + center[j])));
-          return { points, depth: transform(center)[2], hot: Math.exp(-18 * (center[1] - Math.sin(time * 0.9) * 0.57) ** 2) };
-        }).sort((a, b) => a.depth - b.depth);
-        for (const { points, hot } of voxels) {
-          const alpha = cluster.alpha;
-          const heat = cluster.branch ? 0.8 : hot;
-          const tone = [239 - heat * 10, 233 - heat * 133, 223 - heat * 151];
-          const sortedFaces = faces.map(face => ({ face,
-            depth: face.reduce((sum, i) => sum + points[i][2], 0) / 4,
-          })).sort((a, b) => a.depth - b.depth);
-          for (const { face } of sortedFaces) {
-            ctx.beginPath();
-            face.forEach((idx, j) => j ? ctx.lineTo(points[idx][0], points[idx][1]) : ctx.moveTo(points[idx][0], points[idx][1]));
-            ctx.closePath();
-            ctx.fillStyle = `rgba(${16 + heat * 24},${14 + heat * 5},12,${alpha * 0.95})`;
-            ctx.fill();
-            ctx.strokeStyle = `rgba(${tone.join(",")},${alpha * (0.28 + heat * 0.22)})`;
-            ctx.lineWidth = 0.8;
-            ctx.stroke();
-          }
-        }
-        // A luminous perimeter scans the source continuously from top to bottom.
-        if (!cluster.branch) {
-          const scanY = Math.sin(time * 0.9) * 0.57;
-          const ring = [[-0.64,scanY,-0.64],[0.64,scanY,-0.64],[0.64,scanY,0.64],[-0.64,scanY,0.64]].map(transform);
-          ctx.shadowBlur = 14; ctx.shadowColor = "#e5533f";
-          ring.forEach((p, i) => stroke(p, ring[(i + 1) % 4], "rgba(255,128,86,0.85)", 1.5));
-          ctx.shadowBlur = 0;
-        }
+      const scale = Math.min(W * 0.22, H * 0.23), cd = 5.4;
+      const twist = 0.14 * Math.sin(time * 0.42);
+      const P = V.map((p, i) => {
+        // Opposing top/bottom rotation gently skews the original wireframe.
+        const warped = rotY(p, p[1] * twist + (i >= 8 ? Math.sin(time * 0.3) * 0.18 : 0));
+        const q = rotX(rotY(warped, ay), ax);
+        const f = cd / (cd - q[2]);
+        return [W / 2 + q[0] * scale * f, H / 2 + q[1] * scale * f, q[2]];
+      });
+      ctx.lineWidth = 1.1;
+      ctx.setLineDash([3, 5]);
+      for (const [i, j] of E) {
+        const a = P[i], b = P[j];
+        const depth = Math.max(0, Math.min(1, ((a[2] + b[2]) / 2 + 2.1) / 4.2));
+        ctx.strokeStyle = `rgba(239,233,223,${0.16 + 0.54 * depth})`;
+        ctx.beginPath();
+        ctx.moveTo(a[0], a[1]);
+        ctx.lineTo(b[0], b[1]);
+        ctx.stroke();
       }
     };
 
@@ -140,12 +95,12 @@ export default function SiteFooter() {
       const ease = 1 - Math.exp(-dt * 5);
       tiltX += ((-0.36 + my * 0.22) - tiltX) * ease;
       tiltY += ((mx * 0.25) - tiltY) * ease;
-      draw(elapsed, tiltX, 0.65 + elapsed * 0.16 + tiltY);
+      draw(elapsed, tiltX, 0.65 + elapsed * 0.12 + tiltY);
       raf = requestAnimationFrame(loop);
     };
     const ro = new ResizeObserver(() => {
       size();
-      draw(reduce ? 5 : elapsed, tiltX, 0.65 + elapsed * 0.16 + tiltY);
+      draw(reduce ? 5 : elapsed, tiltX, 0.65 + elapsed * 0.12 + tiltY);
     });
     ro.observe(cv);
     const io = new IntersectionObserver(([entry]) => {

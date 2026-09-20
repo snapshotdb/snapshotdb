@@ -202,7 +202,7 @@ footer.sfoot{position:relative;border-top:1px solid var(--line);overflow:hidden;
 .sfoot .sf-reg.br{bottom:62px;right:16px;border-left:0;border-top:0}
 .sf-code{position:absolute;top:30px;left:0;right:0;text-align:center;z-index:2;
   font-family:var(--mono);font-size:11px;letter-spacing:.18em;color:var(--dim)}
-.sf-stage{position:relative;height:clamp(400px,46vw,560px)}
+.sf-stage{position:relative;height:clamp(360px,44vw,500px)}
 .sf-stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
 .sf-word{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   pointer-events:none;padding:0 20px;font-size:clamp(36px,10.8vw,134px)}
