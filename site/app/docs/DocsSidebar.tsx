@@ -1,5 +1,7 @@
 "use client";
 import { usePathname } from "next/navigation";
+import Link from "next/link";
+import Logo from "../Logo";
 
 const groups: { title: string; links: [string, string][] }[] = [
   { title: "Getting started", links: [["/docs", "Overview"], ["/docs/quickstart", "Quickstart"], ["/docs/install", "Install"], ["/docs/server", "Server deployment"]] },
@@ -13,10 +15,10 @@ export default function DocsSidebar() {
   const path = usePathname();
   return (
     <aside className="docs-side">
-      <a className="home" href="/">
-        <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"><circle cx="9" cy="7" r="3" /><circle cx="9" cy="25" r="3" /><circle cx="23" cy="16" r="3" /><path d="M9 10v12M9 16h4a6 6 0 0 0 6-6" /></svg>
+      <Link className="home" href="/">
+        <Logo />
         snapshot<em>db</em>
-      </a>
+      </Link>
       {groups.map((g) => (
         <div key={g.title}>
           <div className="grp">{g.title}</div>

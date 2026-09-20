@@ -1,4 +1,5 @@
 import { ImageResponse } from "next/og";
+import Logo from "./Logo";
 
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
@@ -17,7 +18,7 @@ export default function OG() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 16, fontSize: 26, letterSpacing: -1 }}>
-          <div style={{ display: "flex", width: 30, height: 30, borderRadius: 7, background: "#efe9df" }} />
+          <Logo size={36} fill="#efe9df" />
           <div style={{ display: "flex" }}>
             <span style={{ fontWeight: 700 }}>snapshot</span>
             <span style={{ color: "#8f887c" }}>db</span>

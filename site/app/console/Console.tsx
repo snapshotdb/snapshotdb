@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { initConsole } from "./engine";
 import type { SessionUser } from "./auth";
 import "./console.css";
+import Logo from "../Logo";
 
 export default function Console({ user }: { user: SessionUser }) {
   useEffect(() => {
@@ -26,12 +27,7 @@ export default function Console({ user }: { user: SessionUser }) {
       <div className="app">
         <aside className="side">
           <div className="side-brand">
-            <svg className="glyph" viewBox="0 0 32 32" fill="none" stroke="var(--ink)" strokeWidth="2.4" strokeLinecap="round">
-              <circle cx="9" cy="7" r="3" />
-              <circle cx="9" cy="25" r="3" />
-              <circle cx="23" cy="16" r="3" />
-              <path d="M9 10v12M9 16h4a6 6 0 0 0 6-6" />
-            </svg>
+            <Logo className="glyph" fill="var(--ink)" />
             <span className="wm">snapshot<em>db</em></span> <small>CONSOLE</small>
           </div>
 

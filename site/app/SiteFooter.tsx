@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import Logo from "./Logo";
 
 const GH = "https://github.com/GitHoobar/anybranch";
 
@@ -120,10 +121,7 @@ export default function SiteFooter() {
       <div className="sf-stage">
         <canvas ref={ref} aria-hidden="true" />
         <div className="sf-word">
-          <svg viewBox="0 0 32 32" fill="none" stroke="var(--white)" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
-            <circle cx="9" cy="7" r="3" /><circle cx="9" cy="25" r="3" /><circle cx="23" cy="16" r="3" />
-            <path d="M9 10v12M9 16h4a6 6 0 0 0 6-6" />
-          </svg>
+          <Logo fill="var(--white)" />
           <span className="w">snapshot<em>db</em></span>
         </div>
       </div>

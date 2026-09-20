@@ -1,4 +1,5 @@
 import "./console.css";
+import Logo from "../Logo";
 
 const ERRORS: Record<string, string> = {
   github_not_configured: "GitHub sign-in isn’t configured on this server yet.",
@@ -13,12 +14,7 @@ export default function SignIn({ error }: { error?: string }) {
       <div className="signin">
         <div className="signin-card">
           <div className="signin-brand">
-            <svg className="glyph" viewBox="0 0 32 32" fill="none" stroke="var(--ink)" strokeWidth="2.4" strokeLinecap="round">
-              <circle cx="9" cy="7" r="3" />
-              <circle cx="9" cy="25" r="3" />
-              <circle cx="23" cy="16" r="3" />
-              <path d="M9 10v12M9 16h4a6 6 0 0 0 6-6" />
-            </svg>
+            <Logo className="glyph" fill="var(--ink)" />
             <span className="wm">snapshot<em>db</em></span>
           </div>
 

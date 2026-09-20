@@ -6,14 +6,7 @@ import Desktop from "./Desktop";
 import Install from "./Install";
 import Term from "./Term";
 import Reveal from "./Reveal";
-
-function Logo({ size = 23 }: { size?: number }) {
-  return (
-    <svg viewBox="0 0 32 32" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-      <circle cx="9" cy="7" r="3" /><circle cx="9" cy="25" r="3" /><circle cx="23" cy="16" r="3" /><path d="M9 10v12M9 16h4a6 6 0 0 0 6-6" />
-    </svg>
-  );
-}
+import Logo from "./Logo";
 const GH = "https://github.com/GitHoobar/anybranch";
 
 export default function Home() {
