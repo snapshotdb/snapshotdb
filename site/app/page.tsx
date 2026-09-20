@@ -7,6 +7,8 @@ import Install from "./Install";
 import Term from "./Term";
 import Reveal from "./Reveal";
 import Logo from "./Logo";
+import GithubStars from "./GithubStars";
+import LifecycleFlow from "./LifecycleFlow";
 const GH = "https://github.com/snapshotdb/snapshotdb";
 
 export default function Home() {
@@ -17,8 +19,10 @@ export default function Home() {
 
       <nav><div className="row">
         <a className="logo" href="#top"><Logo /><span className="wm">snapshot<em>db</em></span></a>
-        <div className="links"><a href="#how">How it works</a><a href="#why">Why</a><a href="/docs">Docs</a><a href="/console">Console</a><a href={GH}>GitHub</a></div>
-        <a className="btn solid" href="#start">Get started</a>
+        <div className="links"><a href="#how">How it works</a><a href="/docs">Docs</a></div>
+        <a className="btn" href="/console">Sign in</a>
+        <a className="btn solid" href="/docs/quickstart">Get started</a>
+        <GithubStars />
       </div></nav>
 
       <section className="hero" id="top"><div className="grid">
@@ -44,17 +48,8 @@ export default function Home() {
 
       <section className="sec" id="how-anchor">
         <div className="sec-h" id="how"><span className="no">01</span><h2>The life of a branch</h2>
-          <p>Opens off the replica, diverges into isolation, does real work, collects nothing back.</p></div>
-        <div className="beats">
-          <div className="beat reveal"><div className="k">01 / OPEN</div><h3>It <em>opens</em></h3><p>A copy-on-write clone of the live replica. Unchanged pages share storage. Prepare a pool ahead of time for sub-second branch claims.</p>
-            <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="10" cy="20" r="4" /><path d="M14 20h8" /><circle cx="28" cy="20" r="4" /></svg></div>
-          <div className="beat reveal"><div className="k">02 / DIVERGE</div><h3>It <em>diverges</em></h3><p>Own server, own port, own generated credentials. Writes stay on the branch — never production, never a sibling.</p>
-            <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="9" cy="20" r="4" /><path d="M13 20q9 0 12-7M13 20q9 0 12 7" /><circle cx="29" cy="12" r="3" /><circle cx="29" cy="28" r="3" /></svg></div>
-          <div className="beat reveal"><div className="k">03 / WORK</div><h3>It does <em>work</em></h3><p>Run the migration, the backfill, the risky query, the agent. Break it entirely. Real data, zero blast radius.</p>
-            <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="20" cy="20" r="4.5" /><path d="M20 8v5M20 27v5M8 20h5M27 20h5" /></svg></div>
-          <div className="beat reveal"><div className="k">04 / COLLECT</div><h3>It <em>collects</em></h3><p>Keep what you learned, drop the branch, or reset to a fresh copy. Production never felt a thing. Idle branches suspend.</p>
-            <svg viewBox="0 0 40 40" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><circle cx="28" cy="20" r="4" /><path d="M24 20H15M20 13l-7 7 7 7" /></svg></div>
-        </div>
+          <p>Click through what happens from open to cleanup.</p></div>
+        <LifecycleFlow />
       </section>
 
       <section className="sec" id="why">
@@ -63,13 +58,13 @@ export default function Home() {
         <div className="vals">
           <div className="val reveal"><div className="n">/ ISOLATION</div>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round"><path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z" /><path d="M9 12l2 2 4-4" /></svg>
-            <h3>Zero blast radius</h3><p>Every branch is a sealed copy with its own credentials. A leaked branch URL can’t touch production. Agents get real data, never real access.</p></div>
+            <h3><b>0</b> prod creds leaked</h3><p>Every branch is a sealed copy with its own credentials. A leaked branch URL can’t touch production. Agents get real data, never real access.</p></div>
           <div className="val reveal"><div className="n">/ SCALE</div>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round"><path d="M13 2L3 14h7l-1 8 10-12h-7z" /></svg>
-            <h3>Seconds at any size</h3><p>Copy-on-write means branch time doesn’t grow with your data. A terabyte forks in about a second; you pay disk only for pages you change.</p></div>
+            <h3><b>&lt;1s</b> for 1 TB, prepared</h3><p>Copy-on-write means branch time doesn’t grow with your data. Unchanged pages share storage; you pay disk only for pages you change.</p></div>
           <div className="val reveal"><div className="n">/ CONTROL</div>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round"><rect x="3" y="4" width="18" height="6" rx="1.5" /><rect x="3" y="14" width="18" height="6" rx="1.5" /><path d="M6.5 7h.01M6.5 17h.01" /></svg>
-            <h3>Any engine, your infra</h3><p>Postgres, MySQL, MongoDB, SQLite — branched the same way, on a server you run. Open source. Your data never leaves your machines.</p></div>
+            <h3><b>4</b> engines, your infra</h3><p>Postgres, MySQL, MongoDB, SQLite — branched the same way, on a server you run. Open source. Your data never leaves your machines.</p></div>
         </div>
       </section>
 
