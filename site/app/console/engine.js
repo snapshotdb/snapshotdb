@@ -13,17 +13,20 @@ const el=(t,a={},...k)=>{const n=document.createElement(t);for(const[x,v]of Obje
 const esc=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 
 /* ---------- config ---------- */
+let plan=null;
 const cfg={
+  get byoc(){return localStorage.getItem('ab_mode')==='byoc'},
+  set byoc(v){localStorage.setItem('ab_mode',v?'byoc':'hosted')},
   get base(){return localStorage.getItem('ab_base')||''},   // '' = same origin
   set base(v){localStorage.setItem('ab_base',v)},
   get token(){return localStorage.getItem('ab_token')||''},
   set token(v){localStorage.setItem('ab_token',v)},
 };
-const apiURL=p=>(cfg.base.replace(/\/$/,''))+p;
+const apiURL=p=>cfg.byoc ? (cfg.base.replace(/\/$/,''))+p : '/api/hosted'+p;
 
 /* ---------- API: POST a command, poll the job ---------- */
 async function raw(path,opts={}){
-  const r=await fetch(apiURL(path),{...opts,redirect:'error',signal:AbortSignal.any([lifecycle.signal,connection.signal,AbortSignal.timeout(15000)]),headers:{'Authorization':'Bearer '+cfg.token,...(opts.headers||{})}});
+  const r=await fetch(apiURL(path),{...opts,redirect:'error',signal:AbortSignal.any([lifecycle.signal,connection.signal,AbortSignal.timeout(15000)]),headers:{...(cfg.byoc?{'Authorization':'Bearer '+cfg.token}:{}),...(opts.headers||{})}});
   return r;
 }
 async function health(){
@@ -34,7 +37,7 @@ async function cmd(args,allowedExitCodes=[0]){
   const requestConnection=connection;
   const r=await raw('/v1/commands',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(args)});
   if(r.status===401)throw new Error('unauthorized — check the access token');
-  if(!r.ok){let m='HTTP '+r.status;try{m=(await r.json()).error||m}catch{}throw new Error(m);}
+  if(!r.ok){let m='HTTP '+r.status;try{m=(await r.json()).error||m}catch{}if(r.status===402)openBilling(m);throw new Error(m);}
   const {id}=await r.json();
   for(let i=0;i<600;i++){
     await new Promise(z=>setTimeout(z,i<10?150:400));
@@ -42,7 +45,7 @@ async function cmd(args,allowedExitCodes=[0]){
     const jr=await raw('/v1/jobs/'+id); if(!jr.ok)throw new Error(jr.status===401?'unauthorized — check the access token':'Job lookup failed: HTTP '+jr.status);
     const j=await jr.json();
     if(j.state==='done'){
-      if(!allowedExitCodes.includes(j.exit_code))throw new Error((j.stderr||j.stdout||'command failed').trim());
+      if(!allowedExitCodes.includes(j.exit_code)){const message=(j.stderr||j.stdout||'command failed').trim();if(message.includes('PLAN_LIMIT:')&&!cfg.byoc)openBilling(message.replace('PLAN_LIMIT:',''));throw new Error(message);}
       return (j.stdout||'').trim();
     }
   }
@@ -66,7 +69,9 @@ async function load(){
     const h=await health();
     if(disposed||id!==loadId)return;
     $('#ver').textContent='v'+(h.version||'?');
-    $('#healthDot').className='dot ok'; $('#healthText').textContent=(cfg.base||'same origin')+' · online';
+    $('#healthDot').className='dot ok'; $('#healthText').textContent=(cfg.byoc?'BYOC':'SnapshotDB Cloud')+' · online';
+    $('#deploymentBtn').textContent='Deployment · '+(cfg.byoc?'BYOC':'hosted');
+    if(!cfg.byoc){const pr=await raw('/v1/account');if(!pr.ok)throw new Error('Could not load plan usage');plan=await pr.json();renderUsage();}else{plan=null;renderUsage();}
   }catch(e){
     if(disposed||id!==loadId)return;
     $('#healthDot').className='dot bad'; $('#healthText').textContent='offline';
@@ -91,7 +96,7 @@ function renderDisconnected(msg){
   $('#stage').replaceChildren(el('div',{class:'empty'},
     el('h3',{},'Not connected'),
     el('p',{},msg||'Set the server address and access token.'),
-    el('div',{style:'margin-top:14px'},el('button',{class:'btn primary',onclick:openConn},'Open connection settings'))));
+    el('div',{style:'margin-top:14px'},el('button',{class:'btn primary',onclick:cfg.byoc?openConn:load},cfg.byoc?'BYOC connection settings':'Retry hosted connection'))));
 }
 
 function groupBranches(){
@@ -128,15 +133,17 @@ function sourceCard(r,kids){
   const st=r.status;
   const card=el('div',{class:'card '+st,id:'src-'+cssid(r.name)});
   const badges=[el('span',{class:'badge engine'},r.engine),
-    el('span',{class:'badge state '+st},st)];
+    el('span',{class:'badge state '+st,title:st==='suspended'?'The local copy is idle. Connecting wakes it when quota is available; your original database is unaffected.':''},st==='suspended'?'Idle · auto-resumes':st)];
   if(r.locked)badges.push(el('span',{class:'badge lock'},'🔒 locked'));
   const actions=el('div',{class:'cactions'});
+  if(r.status==='suspended')card.title='This local copy is idle. Connecting resumes it when quota is available; your original remote database is unaffected.';
   if(r.synced){
     actions.append(btn('sm','repair',()=>run(['repair',r.name],'Repairing '+r.name)));
     if(r.engine==='postgres')actions.append(btn('sm','reconcile',()=>run(['reconcile',r.name],'Reconciling '+r.name)));
   }
-  actions.append(btn('sm','open',()=>revealURL(r.name)));
-  if(!r.synced)actions.append(btn('sm',r.status==='running'?'stop':'start',()=>run([r.status==='running'?'stop':'start',r.name],'Updating '+r.name)));
+  if(cfg.byoc||r.engine==='sqlite')actions.append(btn('sm','open',()=>revealURL(r.name)));
+  const sourceActive=r.status==='running'||r.status==='syncing';
+  actions.append(btn('sm',sourceActive?'stop':'start',()=>run([sourceActive?'stop':'start',r.name],'Updating '+r.name)));
   actions.append(btn('sm','settings',()=>openSettings(r.name)));
   actions.append(btn('sm','+ branch',()=>openNewBranch(r.name),'primary'));
   actions.append(btn('sm',r.locked?'unlock':'lock',()=>run([r.locked?'unlock':'lock',r.name],(r.locked?'Unlocking ':'Locking ')+r.name)));
@@ -156,7 +163,7 @@ function sourceCard(r,kids){
 function sourceMeta(r){
   const s=statusCache[r.name];
   if(r.synced && !s)return [metaItem('replication',el('span',{},el('span',{class:'spin'}),' reading…'))];
-  if(!r.synced)return [metaItem('kind','local root (import)'),metaItem('branch from','create --from '+r.name)];
+  if(!r.synced)return [metaItem('kind','local copy'),...(r.status==='suspended'?[metaItem('compute','Paused after inactivity; connections resume it when quota is available.')]:[]),metaItem('branch from','create --from '+r.name)];
   const out=[];
   if(s.initial_copy)out.push(metaItem('initial copy',progress(s.initial_copy)));
   out.push(metaItem('stream',streamCell(s.stream)));
@@ -190,7 +197,7 @@ function branchRow(k){
   const led=el('span',{class:'stateled '+stateClass(k)});
   const row=el('div',{class:'brow'});
   row.append(led,el('span',{class:'bname'},k.name),
-    el('span',{class:'tag'},k.status+' · from '+k.parent),
+    el('span',{class:'tag'},(k.status==='suspended'?'Idle · auto-resumes':k.status)+' · from '+k.parent),
     el('span',{class:'spacer'}));
   if(k.status!=='snapshot'&&(k.engine!=='sqlite'||k.url))row.append(btn('sm','copy url',()=>copyURL(k.name)));
   if(k.status!=='snapshot')row.append(btn('sm','open',()=>revealURL(k.name)));
@@ -227,29 +234,106 @@ function modal(node){ if(disposed)return document.createElement('div');
   $('#modalHost').replaceChildren(scrim); node.querySelector('input,select,button')?.focus(); return scrim; }
 function foot(...b){return el('div',{class:'foot'},...b);}
 
+function renderUsage(){
+  const node=$('#usageSummary');
+  if(cfg.byoc){node.textContent='BYOC · compute and storage run on your infrastructure';return;}
+  if(!plan){node.textContent='';return;}
+  const hours=(plan.remaining_seconds/3600).toFixed(2);
+  node.replaceChildren(el('span',{},(plan.plan==='pro'?'Pro':'Free trial')+' · '+hours+' branch-hours left · '+plan.sources+' source'+(plan.sources===1?'':'s')),btn('sm ghost','View plan',()=>openBilling()));
+}
+function openDeployment(){
+  const mode=el('select',{},el('option',{value:'hosted'},'SnapshotDB Cloud — hosted for you'),el('option',{value:'byoc'},'BYOC — use your own app server'));
+  mode.value=cfg.byoc?'byoc':'hosted';
+  const m=modal(el('div',{class:'modal'},el('h3',{},'Deployment'),
+    el('div',{class:'sub'},'Hosted is the default. Choose BYOC only when you operate a separate SnapshotDB app server.'),
+    el('div',{class:'body'},el('label',{},'Deployment mode'),mode),
+    foot(btn('ghost','Cancel',()=>m.remove()),btn('primary','Save',()=>{cfg.byoc=mode.value==='byoc';connection.abort();connection=new AbortController();branches=[];statusCache={};plan=null;m.remove();renderUsage();if(cfg.byoc)openConn();else load();}),...(cfg.byoc?[btn('ghost','BYOC server settings',()=>{m.remove();openConn();})]:[]))));
+}
+let razorpayScript;
+function loadRazorpay(){
+  if(window.Razorpay)return Promise.resolve();
+  if(razorpayScript)return razorpayScript;
+  razorpayScript=new Promise((resolve,reject)=>{
+    const script=document.createElement('script');
+    const timer=setTimeout(()=>fail(),15000);
+    function fail(){clearTimeout(timer);script.remove();razorpayScript=null;reject(new Error('Could not load payment checkout. Please retry.'));}
+    script.src='https://checkout.razorpay.com/v1/checkout.js';
+    script.onload=()=>{clearTimeout(timer);if(window.Razorpay)resolve();else fail();};
+    script.onerror=fail;document.head.append(script);
+  });
+  return razorpayScript;
+}
+async function standardCheckout(button){
+  button.disabled=true;
+  try{
+    await loadRazorpay();
+    const response=await fetch('/api/create-order',{method:'POST'});
+    const order=await response.json();if(!response.ok)throw new Error(order.error);
+    const checkout=new window.Razorpay({key:order.key_id,amount:order.amount,currency:order.currency,order_id:order.order_id,
+      name:'SnapshotDB',description:'Test payment — does not activate Pro',
+      modal:{ondismiss:()=>{button.disabled=false;toast('ok','Checkout closed','No payment was confirmed.');}},
+      handler:async result=>{
+        try{
+          const response=await fetch('/api/verify-payment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(result)});
+          const value=await response.json();if(!response.ok)throw new Error(value.error);
+          toast(value.success?'ok':'warn',value.success?'Test payment verified':'Payment pending',value.message);
+        }catch(error){toast('err','Verification failed',error.message);}
+        finally{button.disabled=false;}
+      }
+    });
+    checkout.on('payment.failed',event=>{button.disabled=false;toast('err','Payment failed',event.error?.description||'Please try again.');});
+    checkout.open();
+  }catch(error){button.disabled=false;toast('err','Checkout unavailable',error.message);}
+}
+async function checkout(button){
+  button.disabled=true;
+  try{const r=await fetch('/api/billing/checkout',{method:'POST'});const value=await r.json();if(!r.ok)throw new Error(value.error);window.location.assign(value.url);}
+  catch(e){toast('err','Checkout unavailable',e.message);button.disabled=false;}
+}
+function openBilling(reason=''){
+  const upgrade=el('button',{class:'btn primary',onclick:e=>checkout(e.currentTarget)},'Upgrade · $150/month');
+  const pro=plan?.plan==='pro';
+  const m=modal(el('div',{class:'modal'},el('h3',{},'Plan & usage'),
+    el('div',{class:'sub'},reason||'Only running compute uses branch-hours. Idle copies retain their data.'),
+    el('div',{class:'body'},
+      el('div',{class:'plan-grid'},
+        el('div',{class:'plan-card'},el('h4',{},'Free · $0'),el('p',{},'1 source database'),el('p',{},'2 total trial branch-hours'),el('p',{},'1 GiB storage · 1 GiB transfer'),el('p',{},'2 running databases')),
+        el('div',{class:'plan-card'},el('h4',{},'Pro · $150/month'),el('p',{},'Unlimited source databases'),el('p',{},'300 branch-hours per billing month'),el('p',{},'50 GiB shared storage · 50 GiB transfer'),el('p',{},'4 running databases'))),
+      el('p',{class:'hint'},'One database running for one hour uses one branch-hour. Running source replicas also count. Concurrent databases add together. Allowances stop compute at the limit; there are no automatic overage charges.'),
+      plan?el('p',{},'Used: '+(plan.used_seconds/3600).toFixed(2)+' / '+(plan.limit_seconds/3600)+' hours'+(plan.period_end?' · Renews '+new Date(plan.period_end*1000).toLocaleDateString():'')):null,
+      cfg.byoc?el('p',{},'BYOC uses your infrastructure and is outside hosted usage billing.'):null),
+    foot(btn('ghost','Close',()=>m.remove()),...(!cfg.byoc?[btn('ghost','Test payment · ₹1',e=>standardCheckout(e.currentTarget))]:[]),...(!cfg.byoc&&!pro?[upgrade]:[]),...(!cfg.byoc&&pro?[btn('ghost','Cancel renewal',async()=>{
+      if(!window.confirm('Cancel Pro renewal? You keep access until the paid period ends.'))return;
+      try{const r=await fetch('/api/billing/cancel',{method:'POST'});const v=await r.json();if(!r.ok)throw new Error(v.error);toast('ok','Subscription',v.message);m.remove();}catch(e){toast('err','Cancellation failed',e.message);}
+    })]:[]))));
+}
+
 function openConn(){
-  const base=el('input',{value:cfg.base,placeholder:'https://snapshotdb.example.com  (blank = same origin)'});
+  if(!cfg.byoc)return openDeployment();
+  const base=el('input',{value:cfg.base,placeholder:'https://your-server.example.com'});
   const tok=el('input',{value:cfg.token,placeholder:'server access token (SNAPSHOTDB_TOKEN)',type:'password'});
   const m=modal(el('div',{class:'modal'},
-    el('h3',{},'Connection'),
-    el('div',{class:'sub'},'The console calls the snapshotdb server. Same-origin needs no address; a remote address needs the server to allow this origin.'),
+    el('h3',{},'BYOC connection'),
+    el('div',{class:'sub'},'Connect to the SnapshotDB app server you operate. Allow this website’s origin on your server.'),
     el('div',{class:'body'},el('label',{},'Server address'),base,
       el('label',{},'Access token'),tok,
       el('div',{class:'hint'},'Stored only in this browser (localStorage). Never sent anywhere but your server.')),
     foot(el('button',{class:'btn ghost',onclick:()=>m.remove()},'Cancel'),
-      el('button',{class:'btn primary',onclick:()=>{try{const value=base.value.trim();if(value){const u=new URL(value);if(!['http:','https:'].includes(u.protocol)||u.username||u.password||u.search||u.hash)throw new Error('Use an http(s) server address without credentials, query, or fragment');if(location.protocol==='https:'&&u.protocol!=='https:'&&!['localhost','127.0.0.1','[::1]'].includes(u.hostname))throw new Error('An HTTPS console needs an HTTPS server');}cfg.base=value;cfg.token=tok.value.trim();connection.abort();connection=new AbortController();statusCache={};branches=[];m.remove();load();}catch(e){toast('err','Could not save connection',e.message);}}},'Save & connect'))));
+      el('button',{class:'btn primary',onclick:()=>{try{const value=base.value.trim();if(!value)throw new Error('Enter your BYOC server address');if(value){const u=new URL(value);if(!['http:','https:'].includes(u.protocol)||u.username||u.password||u.search||u.hash)throw new Error('Use an http(s) server address without credentials, query, or fragment');if(location.protocol==='https:'&&u.protocol!=='https:'&&!['localhost','127.0.0.1','[::1]'].includes(u.hostname))throw new Error('An HTTPS console needs an HTTPS server');}cfg.base=value;cfg.token=tok.value.trim();connection.abort();connection=new AbortController();statusCache={};branches=[];m.remove();load();}catch(e){toast('err','Could not save connection',e.message);}}},'Save & connect'))));
 }
 
 function openNewSource(){
+  if(!cfg.byoc&&plan&&(plan.remaining_seconds<=0||(plan.source_limit!==null&&plan.sources>=plan.source_limit)))return openBilling('Upgrade to add another source or get more branch-hours.');
   let revision=0;let approved=-1;let busy=false;
   const engine=el('select',{},...['postgres','mysql','mongodb','sqlite'].map(e=>el('option',{value:e},e)));
   const name=el('input',{placeholder:'source name, e.g. prod'});
   const url=el('input',{placeholder:'postgresql://user:pass@host:5432/db'});
-  const schemas=el('input',{placeholder:'public  (postgres only, comma-separated)',value:'public'});
+  const schemas=el('input',{placeholder:'public',value:'public'});
+  const schemaLabel=el('label',{},'Schemas');
   const result=el('div');
   const preBtn=el('button',{class:'btn',onclick:doPreflight},'Run preflight');
   const cloneBtn=el('button',{class:'btn primary',disabled:'',onclick:doClone},'Clone source');
-  const invalidate=()=>{revision++;approved=-1;cloneBtn.disabled=engine.value!=='sqlite';preBtn.hidden=engine.value==='sqlite';url.disabled=engine.value==='sqlite';schemas.disabled=engine.value!=='postgres';result.replaceChildren();};
+  const invalidate=()=>{revision++;approved=-1;cloneBtn.disabled=engine.value!=='sqlite';preBtn.hidden=engine.value==='sqlite';url.disabled=engine.value==='sqlite';schemas.disabled=engine.value!=='postgres';schemas.hidden=engine.value!=='postgres';schemaLabel.hidden=engine.value!=='postgres';result.replaceChildren();};
   [engine,name,url,schemas].forEach(input=>input.addEventListener('input',invalidate));
   async function doPreflight(){
     if(busy)return;busy=true;preBtn.disabled=true;cloneBtn.disabled=true;approved=-1;
@@ -275,7 +359,7 @@ function openNewSource(){
     el('div',{class:'body'},
       el('div',{class:'row2'},el('div',{},el('label',{},'Engine'),engine),el('div',{},el('label',{},'Name'),name)),
       el('label',{style:'margin-top:14px'},'Connection string'),url,
-      el('label',{style:'margin-top:14px'},'Schemas'),schemas,
+      schemaLabel,schemas,
       result),
     foot(el('button',{class:'btn ghost',onclick:()=>m.remove()},'Cancel'),preBtn,cloneBtn)));
 }
@@ -294,6 +378,7 @@ function renderChecklist(host,rep){
 }
 
 function openNewBranch(from){
+  if(!cfg.byoc&&plan&&plan.remaining_seconds<=0)return openBilling('Your branch-hour allowance is exhausted.');
   const name=el('input',{placeholder:'branch name, e.g. fix-orders'});
   const m=modal(el('div',{class:'modal'},
     el('h3',{},'New branch'),
@@ -310,6 +395,7 @@ function openNewBranch(from){
 }
 
 async function openSettings(root){
+  if(!cfg.byoc){modal(el('div',{class:'modal'},el('h3',{},'Hosted source settings'),el('div',{class:'body'},el('p',{},'Hosted databases use managed defaults: 1 vCPU, 2 GiB memory per running database. Advanced engine hooks are available in BYOC mode.')),foot(btn('ghost','Close',()=>$('#modalHost').replaceChildren()))));return;}
   let text='';
   try{ text=await cmd(['settings',root]); }catch(e){ text=e.message; }
   const dbInput=el('input',{placeholder:'default database name'});
@@ -364,12 +450,13 @@ async function revealURL(name){
 }
 
 /* ---------- wire up ---------- */
-$('#connBtn').onclick=openConn;
+$('#deploymentBtn').onclick=openDeployment;
+$('#billingBtn').onclick=()=>openBilling();
 $('#newSourceBtn').onclick=openNewSource;
 $('#refreshBtn').onclick=load;
 const onKey=e=>{if(e.key==='r'&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&!document.activeElement.isContentEditable&&!/input|select|textarea/i.test(document.activeElement.tagName))load();};
 window.addEventListener('keydown',onKey);
-function openNewSourceGuard(){ if(!cfg.token&&!cfg.base){openConn();}else openNewSource(); }
+function openNewSourceGuard(){ if(cfg.byoc&&(!cfg.token||!cfg.base)){openConn();}else openNewSource(); }
 $('#newSourceBtn').onclick=openNewSourceGuard;
 
 /* ---------- stat cards + sidebar views ---------- */
@@ -391,6 +478,10 @@ function setView(v){
 $$('.nav-i[data-view]').forEach(b=>b.onclick=()=>setView(b.dataset.view));
 $('#navSettings').onclick=()=>{const roots=branches.filter(b=>!b.parent||b.parent==='-');if(!roots.length)return toast('err','No source yet','Connect a source to edit its branch settings.');openSettings(roots[0].name);};
 
+setInterval(async()=>{if(disposed||document.hidden)return;try{
+  const next=await cmdJSON(['list']);if(disposed)return;branches=next||[];render();
+  if(!cfg.byoc){const response=await raw('/v1/account');if(response.ok){plan=await response.json();if(!disposed)renderUsage();}}
+}catch{}},15000);
 // live refresh of statuses every 6s (only status calls, cheap)
 setInterval(()=>{ if($('#healthDot').classList.contains('ok'))
   for(const b of branches.filter(x=>x.synced))

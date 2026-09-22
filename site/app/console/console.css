@@ -237,6 +237,13 @@ main{padding:30px 0 90px}
 .abc .side-user .u-t{min-width:0;flex:1}
 .abc .side-user .nm{color:var(--ink);font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .abc .side-user .hd{color:var(--dim);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.abc .side-user .out{color:var(--muted);flex:none;padding:4px;line-height:0}
+.abc .side-user .out{color:var(--muted);flex:none;padding:4px;line-height:0;background:none;border:0;cursor:pointer}
 .abc .side-user .out:hover{color:var(--ink)}
 .abc .side-user .out svg{width:15px;height:15px}
+
+.abc .usage-summary{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0 20px;color:var(--muted);font-family:var(--mono);font-size:12px}
+.abc .plan-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.abc .plan-card{padding:16px;border:1px solid var(--line)}
+.abc .plan-card h4{margin:0 0 14px;font-size:18px}
+.abc .plan-card p{font-size:13px;line-height:1.5;margin:8px 0}
+@media(max-width:640px){.abc .plan-grid{grid-template-columns:1fr}.abc .usage-summary{align-items:flex-start;flex-direction:column}}

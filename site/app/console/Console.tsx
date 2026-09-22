@@ -37,7 +37,7 @@ export default function Console({ user }: { user: SessionUser }) {
           </div>
 
           <nav className="nav">
-            <div className="nav-h">Server</div>
+            <div className="nav-h">Workspace</div>
             <button className="nav-i active" data-view="overview">
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <rect x="1.5" y="1.5" width="5" height="5" />
@@ -72,12 +72,8 @@ export default function Console({ user }: { user: SessionUser }) {
               </svg>
               Settings
             </button>
-            <button className="nav-i" id="connBtn">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                <path d="M6.4 9.6l3.2-3.2M5.4 8 4 9.4a2.1 2.1 0 0 0 3 3L8.4 11M10.6 8 12 6.6a2.1 2.1 0 0 0-3-3L7.6 5" />
-              </svg>
-              Connection
-            </button>
+            <button className="nav-i" id="billingBtn">Plan &amp; usage</button>
+            <button className="nav-i" id="deploymentBtn">Deployment · hosted</button>
           </nav>
 
           <div className="side-foot">
@@ -107,11 +103,13 @@ export default function Console({ user }: { user: SessionUser }) {
               <div className="nm">{display}</div>
               <div className="hd">{"@" + user.login}</div>
             </div>
-            <a className="out" href="/api/auth/logout" title="Sign out" aria-label="Sign out">
-              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M6 14H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h3M10.5 11 14 8l-3.5-3M14 8H6" />
-              </svg>
-            </a>
+            <form action="/api/auth/logout" method="post" style={{ display: "contents" }}>
+              <button type="submit" className="out" title="Sign out" aria-label="Sign out">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M6 14H3a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1h3M10.5 11 14 8l-3.5-3M14 8H6" />
+                </svg>
+              </button>
+            </form>
           </div>
         </aside>
 
@@ -128,6 +126,7 @@ export default function Console({ user }: { user: SessionUser }) {
               <div className="statcard"><div className="lbl"><span className="d"></span>Branches</div><div className="num" id="stBranches">—</div></div>
               <div className="statcard"><div className="lbl"><span className="d"></span>Engines</div><div className="num" id="stEngines">—</div></div>
             </div>
+            <div id="usageSummary" className="usage-summary" aria-live="polite"></div>
             <div id="stage">
               <div className="empty"><h3>Connecting…</h3><p>Reading the server inventory.</p></div>
             </div>

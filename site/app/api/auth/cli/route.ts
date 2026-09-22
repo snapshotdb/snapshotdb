@@ -9,11 +9,11 @@ export async function GET(req: NextRequest) {
   if (!/^\d{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535 || !/^[a-f0-9]{32}$/.test(state)) {
     return NextResponse.redirect(new URL("/console?error=cli_port", req.url));
   }
-  const res = NextResponse.redirect(new URL("/api/auth/github", req.url));
+  const res = NextResponse.redirect(new URL("/api/auth/github?cli=1", req.url));
   const opts = {
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: req.nextUrl.protocol === "https:",
+    secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 600,
   };

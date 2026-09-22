@@ -119,6 +119,50 @@ fn client_requires_server_and_never_falls_back() {
 }
 
 #[test]
+fn hosted_accounts_isolate_jobs_inventory_and_enforce_source_limit() {
+    let _fixture = SERVER_FIXTURE.lock().unwrap();
+    const GATEWAY: &str = "separate-hosted-gateway-secret-32-characters";
+    let base = std::env::temp_dir().join(format!("snapshotdb-hosted-{}", std::process::id()));
+    fs::create_dir_all(&base).unwrap();
+    let listener=TcpListener::bind("127.0.0.1:0").unwrap();let addr=listener.local_addr().unwrap();drop(listener);
+    let server=Command::new(env!("CARGO_BIN_EXE_snapshotdb"))
+        .env("SNAPSHOTDB_HOME",base.join("server")).env("SNAPSHOTDB_TOKEN",TOKEN).env("SNAPSHOTDB_HOSTED_TOKEN",GATEWAY)
+        .args(["serve","--bind",&addr.to_string(),"--public-host","127.0.0.1"])
+        .stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let mut f=Fixture{server,base,url:format!("http://{addr}")};
+    for _ in 0..100 { if std::net::TcpStream::connect(addr).is_ok(){break;} assert!(f.server.try_wait().unwrap().is_none());thread::sleep(Duration::from_millis(20)); }
+    let account=|tenant:&str|->serde_json::Value {
+        let body=ureq::get(format!("{}/v1/account",f.url)).header("Authorization",format!("Bearer {GATEWAY}"))
+            .header("X-SnapshotDB-Tenant",tenant).call().unwrap().body_mut().read_to_string().unwrap();
+        serde_json::from_str(&body).unwrap()
+    };
+    assert_eq!(account("github-1")["plan"],"free");
+    assert_eq!(account("github-2")["sources"],0);
+    assert!(matches!(ureq::get(format!("{}/v1/account",f.url)).header("Authorization",format!("Bearer {TOKEN}"))
+        .header("X-SnapshotDB-Tenant","github-1").call(),Err(ureq::Error::StatusCode(404))));
+    let root=f.base.join("server/.tenants/github-1/owned");
+    fs::create_dir_all(root.join("data")).unwrap();fs::write(root.join("engine"),"sqlite").unwrap();
+    assert_eq!(account("github-1")["sources"],1);
+    assert_eq!(account("github-2")["sources"],0);
+    let submit=|tenant:&str,args:&[&str]|->String {
+        let body=ureq::post(format!("{}/v1/commands",f.url)).header("Authorization",format!("Bearer {GATEWAY}"))
+            .header("X-SnapshotDB-Tenant",tenant).send(serde_json::to_string(args).unwrap()).unwrap().body_mut().read_to_string().unwrap();
+        serde_json::from_str::<serde_json::Value>(&body).unwrap()["id"].as_str().unwrap().to_owned()
+    };
+    let id=submit("github-1",&["import","sqlite","second","--new"]);
+    for _ in 0..100 {
+        let body=ureq::get(format!("{}/v1/jobs/{id}",f.url)).header("Authorization",format!("Bearer {GATEWAY}"))
+            .header("X-SnapshotDB-Tenant","github-1").call().unwrap().body_mut().read_to_string().unwrap();
+        let v:serde_json::Value=serde_json::from_str(&body).unwrap();
+        if v["state"]=="done" { assert_eq!(v["exit_code"],1);assert!(v["stderr"].as_str().unwrap().contains("PLAN_LIMIT"));break; }
+        thread::sleep(Duration::from_millis(20));
+    }
+    assert!(!f.base.join("server/.tenants/github-1/second").exists());
+    assert!(matches!(ureq::get(format!("{}/v1/jobs/{id}",f.url)).header("Authorization",format!("Bearer {GATEWAY}"))
+        .header("X-SnapshotDB-Tenant","github-2").call(),Err(ureq::Error::StatusCode(404))));
+}
+
+#[test]
 fn authenticated_jobs_execute_only_in_server_storage() {
     let _fixture = SERVER_FIXTURE.lock().unwrap();
     let base = std::env::temp_dir().join(format!("snapshotdb-api-{}", std::process::id()));

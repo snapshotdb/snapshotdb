@@ -38,7 +38,9 @@ pub fn serve(b: &Branch) -> R<()> {
     let server = Server::http((bind.as_str(), b.port().ok_or("no SQLite port")?))
         .map_err(|e| e.to_string())?;
     let token = b.password().ok_or("SQLite credentials missing")?;
-    for mut req in server.incoming_requests() {
+    loop {
+        if hosted::enabled() && hosted::check(&home()).is_err() { break; }
+        let Some(mut req) = server.recv_timeout(Duration::from_secs(5)).map_err(|e|e.to_string())? else { continue; };
         let expected = format!("/v1/query?token={token}");
         let auth = req.url().as_bytes();
         let valid = auth.len() == expected.len()
@@ -68,8 +70,13 @@ pub fn serve(b: &Branch) -> R<()> {
                 }
             }
         };
+        let body = result.to_string();
+        if valid { if let Err(e) = hosted::charge_transfer(body.len()) {
+            let _ = req.respond(Response::from_string(e).with_status_code(402));
+            continue;
+        } }
         let _ = req.respond(
-            Response::from_string(result.to_string())
+            Response::from_string(body)
                 .with_status_code(status)
                 .with_header(Header::from_bytes("Content-Type", "application/json").unwrap())
                 .with_header(Header::from_bytes("Cache-Control", "no-store").unwrap()),
@@ -79,6 +86,7 @@ pub fn serve(b: &Branch) -> R<()> {
 }
 
 fn query(b: &Branch, body: Value) -> R<Value> {
+    hosted::before_start(b)?;
     pool::writable(b)?;
     if b.parent().is_some() && !b.run().join("ready-v1").exists() {
         return Err("branch initialization has not completed".into());

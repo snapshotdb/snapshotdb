@@ -3,7 +3,7 @@
 use crate::*;
 
 pub fn command(b: &Branch, program: &str) -> R<Command> {
-    if b.parent().is_none() {
+    if b.parent().is_none() && !hosted::enabled() {
         return Ok(Command::new(program));
     }
     if !cfg!(target_os = "linux") {
@@ -31,5 +31,6 @@ pub fn command(b: &Branch, program: &str) -> R<Command> {
     if key.exists() { cmd.arg("--ro-bind").arg(&key).arg(&key); }
     cmd.args(["--setenv", "PATH", &env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".into()),
         "--setenv", "LC_ALL", "C", "--setenv", "HOME", "/tmp", "--", program]);
+    hosted::limit_process(&mut cmd, b)?;
     Ok(cmd)
 }

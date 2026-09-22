@@ -19,7 +19,7 @@ export default function Home() {
 
       <nav><div className="row">
         <a className="logo" href="#top"><Logo /><span className="wm">snapshot<em>db</em></span></a>
-        <div className="links"><a href="#how">How it works</a><a href="/docs">Docs</a></div>
+        <div className="links"><a href="#how">How it works</a><a href="#pricing">Pricing</a><a href="/docs">Docs</a></div>
         <a className="btn" href="/console">Sign in</a>
         <a className="btn solid" href="/docs/quickstart">Get started</a>
         <GithubStars />
@@ -29,7 +29,7 @@ export default function Home() {
         <div className="left">
           <div className="eyebrow"><b>OSS</b><span>GIT FOR YOUR DATABASE</span></div>
           <h1 className="title"><span><i>Branch your</i></span><span><i>database</i></span><span><i>like code.</i></span></h1>
-          <p className="sub">An isolated, writable copy of production in seconds — PostgreSQL, MySQL, MongoDB, and SQLite, on infrastructure you own.</p>
+          <p className="sub">An isolated, writable copy of production in seconds — PostgreSQL, MySQL, MongoDB, and SQLite. Hosted for you, or deployed in your own cloud.</p>
           <div className="statusline"><span className="live" />replica <b>in sync</b> · branch <b id="phase">opens</b></div>
           <div className="actions"><a className="btn solid" href="#start">Start branching <span className="arw">→</span></a><a className="btn" href="/console">Open console</a></div>
           <Install />
@@ -64,8 +64,18 @@ export default function Home() {
             <h3><b>&lt;1s</b> for 1 TB, prepared</h3><p>Copy-on-write means branch time doesn’t grow with your data. Unchanged pages share storage; you pay disk only for pages you change.</p></div>
           <div className="val reveal"><div className="n">/ CONTROL</div>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round"><rect x="3" y="4" width="18" height="6" rx="1.5" /><rect x="3" y="14" width="18" height="6" rx="1.5" /><path d="M6.5 7h.01M6.5 17h.01" /></svg>
-            <h3><b>4</b> engines, your infra</h3><p>Postgres, MySQL, MongoDB, SQLite — branched the same way, on a server you run. Open source. Your data never leaves your machines.</p></div>
+            <h3><b>4</b> engines, one workflow</h3><p>Postgres, MySQL, MongoDB, SQLite — branched the same way. Start on SnapshotDB Cloud, or choose BYOC to keep the replica and branches in your infrastructure.</p></div>
         </div>
+      </section>
+
+      <section className="sec" id="pricing">
+        <div className="sec-h"><span className="no">/ PRICING</span><h2>Start small. Branch when you need it.</h2><p>Hosted by default. No server setup required.</p></div>
+        <div className="vals">
+          <div className="val"><div className="n">FREE TRIAL</div><h3>$0</h3><p>1 source database. 2 total branch-hours. 1 GiB storage and 1 GiB outbound data. Up to 2 running databases.</p><a className="btn" href="/console">Start free</a></div>
+          <div className="val"><div className="n">PRO</div><h3>$150 / month</h3><p>Unlimited source database count. 300 branch-hours per billing month. 50 GiB shared storage and 50 GiB outbound data. Up to 4 running databases.</p><a className="btn solid" href="/console">Choose Pro</a></div>
+          <div className="val"><div className="n">BRING YOUR OWN CLOUD</div><h3>Your infrastructure</h3><p>Run the open-source server in your cloud. Configure its address and access token in BYOC mode. Hosted allowances do not apply; you pay your cloud provider.</p><a className="btn" href="/docs/server">Deploy BYOC</a></div>
+        </div>
+        <p>One branch-hour is one database running for one hour, including source replicas. Concurrent databases add together. Each hosted database has a 1 vCPU / 2 GiB limit. Idle native engines pause after five minutes. Compute pauses at your allowance; no automatic overage charges. Storage includes the logical size of each copy. Taxes may apply.</p>
       </section>
 
       <section className="sec how" id="start">

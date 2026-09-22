@@ -37,6 +37,13 @@ pub fn serve(name: &str) -> R<()> {
     let listener = TcpListener::bind((bind.as_str(), port)).map_err(|e| format!("bind {bind}:{port}: {e}"))?;
     let activity = Arc::new(Activity { open: AtomicUsize::new(0), last: Mutex::new(Instant::now()), start: Mutex::new(()) });
 
+    if crate::hosted::enabled() {
+        let monitored = Branch::load(name)?;
+        thread::spawn(move || loop {
+            thread::sleep(Duration::from_secs(5));
+            if crate::hosted::check(&crate::home()).is_err() && monitored.running() { let _ = monitored.stop(); }
+        });
+    }
     let idle = idle_minutes();
     if idle > 0 && b.source().is_none() {
         let (watched, act) = (Branch::load(name)?, activity.clone());
@@ -81,7 +88,13 @@ fn splice(client: TcpStream, b: &Branch, act: &Activity) -> R<()> {
         let _ = io::copy(&mut c_in, &mut u_out);
         let _ = u_out.shutdown(Shutdown::Write);
     });
-    let _ = io::copy(&mut u_in, &mut c_out);
+    if crate::hosted::enabled() {
+        if let Err(e) = crate::hosted::copy_out(&mut u_in, &mut c_out) {
+            eprintln!("{e}");
+            let _ = c_out.shutdown(Shutdown::Both);
+            let _ = u_in.shutdown(Shutdown::Both);
+        }
+    } else { let _ = io::copy(&mut u_in, &mut c_out); }
     let _ = c_out.shutdown(Shutdown::Write);
     let _ = to_engine.join();
     Ok(())

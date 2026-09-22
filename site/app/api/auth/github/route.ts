@@ -22,9 +22,14 @@ export async function GET(req: NextRequest) {
   res.cookies.set(OAUTH_STATE_COOKIE, state, {
     httpOnly: true,
     sameSite: "lax",
-    secure: req.nextUrl.protocol === "https:",
+    secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 600,
   });
+  // A plain web login must not be diverted to a CLI loopback left over from an earlier attempt.
+  if (!req.nextUrl.searchParams.has("cli")) {
+    res.cookies.delete("ab_cli_port");
+    res.cookies.delete("ab_cli_state");
+  }
   return res;
 }

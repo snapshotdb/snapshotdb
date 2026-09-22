@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 
 export type SessionUser = {
   login: string;
+  id?: string;
   name?: string;
   avatar?: string;
   provider: "github";
@@ -35,9 +36,10 @@ export function verifySession(token: string | undefined | null): SessionUser | n
     const value = JSON.parse(Buffer.from(payload, "base64url").toString());
     if (!value || value.provider !== "github" || typeof value.login !== "string" || !value.login ||
         !Number.isInteger(value.exp) || value.exp <= Math.floor(Date.now() / 1000) ||
+        (value.id !== undefined && (typeof value.id !== "string" || !/^[1-9][0-9]{0,19}$/.test(value.id))) ||
         (value.name !== undefined && typeof value.name !== "string") ||
         (value.avatar !== undefined && typeof value.avatar !== "string")) return null;
-    return { login: value.login, name: value.name, avatar: value.avatar, provider: "github" };
+    return { id: value.id, login: value.login, name: value.name, avatar: value.avatar, provider: "github" };
   } catch {
     return null;
   }

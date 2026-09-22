@@ -21,7 +21,7 @@ export default function Page() {
       </ul>
 
       <h2>How it compares to hosted branching</h2>
-      <p>snapshotdb runs on infrastructure you own. It uses native replication for PostgreSQL, MySQL, and MongoDB, and file-based imports for SQLite. Deploy it in your own cloud with reflink-capable storage. The control API uses one admin token; it does not provide managed tenants or billing.</p>
+      <p>snapshotdb runs on SnapshotDB Cloud by default, or on infrastructure you own in BYOC mode. It uses native replication for PostgreSQL, MySQL, and MongoDB, and file-based imports for SQLite. Deploy it in your own cloud with reflink-capable storage. The BYOC control API uses one admin token. Hosted console sessions use separate workspaces with plan limits and Razorpay billing.</p>
 
       <h2>Explore</h2>
       <ul>

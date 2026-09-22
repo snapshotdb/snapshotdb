@@ -42,7 +42,7 @@ export async function GET(req: NextRequest) {
   }
   if (!accessToken) return fail("oauth_token");
 
-  let gh: { login?: string; name?: string; avatar_url?: string } | null = null;
+  let gh: { id?: number; login?: string; name?: string; avatar_url?: string } | null = null;
   try {
     const userRes = await fetch("https://api.github.com/user", {
       headers: {
@@ -56,27 +56,25 @@ export async function GET(req: NextRequest) {
   } catch {
     return fail("oauth_user");
   }
-  if (!gh?.login) return fail("oauth_user");
+  if (!gh?.login || !Number.isSafeInteger(gh.id) || !gh.id || gh.id < 1) return fail("oauth_user");
 
   let session: string;
   try { session = encodeSession({
+    id: String(gh.id),
     login: gh.login,
     name: gh.name || gh.login,
     avatar: gh.avatar_url,
     provider: "github",
   }); } catch { return fail("github_not_configured"); }
 
-  // CLI login: hand the session back to the local loopback the CLI is listening on.
-  const cliPort = req.cookies.get("ab_cli_port")?.value;
-  const cliState = req.cookies.get("ab_cli_state")?.value || "";
-  if (cliPort && /^\d{1,5}$/.test(cliPort) && Number(cliPort) > 0 && Number(cliPort) <= 65535 && /^[a-f0-9]{32}$/.test(cliState)) {
-    const to = new URL(`http://127.0.0.1:${cliPort}/callback`);
-    to.searchParams.set("token", session);
-    to.searchParams.set("user", gh.login);
-    to.searchParams.set("state", cliState);
-    const r = NextResponse.redirect(to.toString());
-    r.cookies.delete("ab_cli_port");
-    r.cookies.delete("ab_cli_state");
+  // CLI login: park the session and ask the user to confirm before it goes to a loopback
+  // port. Without the prompt, a crafted /api/auth/cli link silently hands a session to
+  // whatever listens on that port (GitHub skips consent for already-authorized apps).
+  if (req.cookies.get("ab_cli_port")?.value) {
+    const r = NextResponse.redirect(new URL(`/api/auth/cli/confirm?user=${encodeURIComponent(gh.login)}`, req.url));
+    const pending = { httpOnly: true, sameSite: "strict" as const, secure: process.env.NODE_ENV === "production", path: "/api/auth/cli", maxAge: 300 };
+    r.cookies.set("ab_cli_session", session, pending);
+    r.cookies.set("ab_cli_user", gh.login, pending);
     r.cookies.delete(OAUTH_STATE_COOKIE);
     return r;
   }
@@ -85,7 +83,7 @@ export async function GET(req: NextRequest) {
   res.cookies.set(SESSION_COOKIE, session, {
     httpOnly: true,
     sameSite: "lax",
-    secure: req.nextUrl.protocol === "https:",
+    secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 60 * 60 * 24 * 7,
   });

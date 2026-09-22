@@ -24,7 +24,7 @@ export default function Page() {
 
       <p>Allowed commands over the API are the branch and source lifecycle: <code>preflight, clone, sync, import, create, prepare, info, url, switch, list, status, repair, reconcile, reset, settings, lock, unlock, start, stop, rm</code>.</p>
 
-      <div className="note"><b>Why one endpoint, not dozens:</b> a multi-tenant managed service needs many resource routes (projects, connectors, branches, operations, api-keys, orgs). snapshotdb is a single self-hosted server with no tenancy, so it exposes one generic job endpoint instead — every capability, without the multi-tenant surface.</div>
+      <div className="note"><b>Why one endpoint, not dozens:</b> a multi-tenant managed service needs many resource routes (projects, connectors, branches, operations, api-keys, orgs). the BYOC server exposes a generic job endpoint. Hosted access goes through an authenticated web gateway that selects a private workspace and enforces plan allowances; the gateway token must never be distributed to users.</div>
 
       <div className="np"><a href="/docs/configuration">← Configuration</a><a className="n" href="/docs/faq">FAQ →</a></div>
     </>

@@ -87,6 +87,9 @@ pub fn run(engine: Engine, url: &str, schemas: &str) -> R<Report> {
 }
 
 fn unreachable_report(name: &'static str, err: String, fix: &str) -> Report {
+    let missing = err.contains("No such file or directory") && err.contains("os error 2");
+    let fix = if missing { "A database client executable is missing from the SnapshotDB server. Install it in the server/container and add it to the service PATH; changing database credentials will not fix this." } else { fix };
+    let name = if missing { "server dependency" } else { name };
     Report {
         checks: vec![check(name, false, err.lines().last().unwrap_or("").to_string(), fix)],
         grant_script: String::new(),
@@ -97,7 +100,7 @@ fn unreachable_report(name: &'static str, err: String, fix: &str) -> Report {
 }
 
 fn postgres(url: &str, schemas: &str) -> R<Report> {
-    let list = schemas.split(',').map(|s| format!("'{}'", s.trim())).collect::<Vec<_>>().join(",");
+    let list = schemas.split(',').map(|s| format!("'{}'", s.trim().replace('\'', "''"))).collect::<Vec<_>>().join(",");
     let server = match psql(url, "SELECT current_setting('server_version_num')::int, pg_is_in_recovery(), current_setting('wal_level'), \
         (SELECT count(*) FROM pg_replication_slots), current_setting('max_replication_slots')::int, \
         (SELECT count(*) FROM pg_stat_replication), current_setting('max_wal_senders')::int, \

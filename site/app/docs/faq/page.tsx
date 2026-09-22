@@ -20,10 +20,10 @@ export default function Page() {
       <p>Postgres, MySQL, MongoDB, and SQLite. Network-engine branches require Linux with the filesystem sandbox; SQLite is also supported on macOS/APFS.</p>
 
       <h2>Is my data sent anywhere?</h2>
-      <p>No. snapshotdb is self-hosted. The replica and every branch live on a server you run; nothing leaves your infrastructure and there is no telemetry.</p>
+      <p>In hosted mode, database copies live on SnapshotDB infrastructure. In BYOC mode, the replica and branches live on your server; connection settings are available only after selecting BYOC.</p>
 
-      <h2>What is intentionally not here?</h2>
-      <p>No managed team accounts, tenant isolation, or billing. You deploy it in your own cloud or infrastructure. snapshotdb is one server with one admin token. Those are multi-tenant SaaS concerns; if you need shared access, run the server where your team can reach it.</p>
+      <h2>What does the hosted plan include?</h2>
+      <p>Free includes one source database and two total trial branch-hours. Pro is $150/month for unlimited source database count and 300 branch-hours per paid billing month, with 50 GiB shared storage and 50 GiB outbound data. Running source replicas count too. Idle copies keep their data; resuming needs remaining allowance. BYOC does not use hosted allowances.</p>
 
       <h2>What are the known limits?</h2>
       <ul>

@@ -9,6 +9,7 @@
 //! engine port behind it. Idle engines are suspended and resumed on the next connection.
 //! The client submits authenticated jobs; only the deployed server clones database files.
 mod preflight;
+mod hosted;
 mod proxy;
 mod remote;
 mod pool;
@@ -70,7 +71,7 @@ impl Args {
                 Some(k) => {
                     if let Some((k, v)) = k.split_once('=') {
                         flags.insert(k.to_string(), v.to_string());
-                    } else if matches!(k, "print-url" | "fix-replica-identity") || it.peek().map_or(true, |n| n.starts_with("--")) {
+                    } else if matches!(k, "print-url" | "fix-replica-identity") || it.peek().is_none_or(|n| n.starts_with("--")) {
                         flags.insert(k.to_string(), "true".into());
                     } else {
                         flags.insert(k.to_string(), it.next().unwrap_or_default());
@@ -117,6 +118,9 @@ fn main() {
         }
     } else { None };
     let a = Args::parse(raw);
+    if a.pos.first().map(String::as_str) != Some("_proxy") {
+        if let Err(e) = hosted::validate(&a) { eprintln!("{e}"); process::exit(1); }
+    }
     if a.flag("version") {
         println!("snapshotdb {}", env!("CARGO_PKG_VERSION"));
         return;
@@ -125,6 +129,7 @@ fn main() {
         println!("{USAGE}");
         process::exit(if a.flag("help") { 0 } else { 1 });
     }
+    if hosted::enabled() && a.pos.first().map(String::as_str)==Some("rm") { env::set_var("SNAPSHOTDB_CLEANUP", "1"); }
     let p: Vec<&str> = a.pos.iter().map(String::as_str).collect();
     let json = a.json();
     let current = |name: Option<&&str>| -> R<Branch> {
@@ -167,10 +172,12 @@ fn main() {
         ["settings", root, "remove", key] => Branch::load(root).and_then(|b| b.remove_setting(key, a.flags.get("hook"))),
         ["lock", name] => Branch::load(name).and_then(|b| io(fs::write(b.dir.join("lock"), ""))),
         ["unlock", name] => Branch::load(name).and_then(|b| io(fs::remove_file(b.dir.join("lock")).or(Ok(())))),
-        ["start", name] => Branch::load(name).and_then(|b| b.start().and(b.url())).map(|u| println!("{u}")),
+        ["start", name] => Branch::load(name).and_then(|b| b.start().and_then(|_| if hosted::enabled() && b.parent().is_none() && b.engine != Engine::Sqlite { Ok(format!("Source {} started", b.name)) } else { b.url() })).map(|u| println!("{u}")),
         ["stop", name] => Branch::load(name).and_then(|b| b.stop()),
         ["rm", name] => Branch::load(name).and_then(|b| b.rm()),
         ["_proxy", name] => proxy::serve(name),
+        ["_hosted_up"] => hosted::recover().and_then(|_| up()),
+        ["_hosted_down"] => down().and_then(|_| hosted::usage(&home()).map(|_| ())),
         _ => Err(USAGE.to_string()),
     };
     if let Err(e) = result {
@@ -189,6 +196,8 @@ fn main() {
 fn emit(b: &Branch, a: &Args, started: Option<Instant>) -> R<()> {
     if a.json() {
         println!("{}", b.info_json()?);
+    } else if hosted::enabled() && b.parent().is_none() && b.engine != Engine::Sqlite {
+        println!("Source {} ready; create a branch to connect", b.name);
     } else {
         println!("{}", b.url()?);
         if let (Some(t), false) = (started, a.flag("print-url")) {
@@ -497,6 +506,7 @@ impl Branch {
 
     /// Public URL through the proxy. Valid while the branch is suspended: connecting resumes it.
     pub fn url(&self) -> R<String> {
+        if hosted::enabled() && self.parent().is_none() && self.engine != Engine::Sqlite { return Err("Create a branch to get a connection URL. Hosted source replicas do not expose admin credentials.".into()); }
         if pool::is_snapshot(self) { return Err("prepared snapshots are immutable; create a branch from this snapshot".into()); }
         if self.parent().is_some() && !self.run().join("ready-v1").exists() {
             return Err("branch initialization has not completed; start the branch before requesting its URL".into());
@@ -636,6 +646,8 @@ impl Branch {
     pub fn start(&self) -> R<()> {
         pool::writable(self)?;
         if self.engine == Engine::Sqlite {
+            let _quota = hosted::start_lock()?;
+            hosted::before_start(self)?;
             let _hold = self.hold()?;
             self.ensure_credentials()?;
             self.initialize_hooks()?;
@@ -662,8 +674,9 @@ impl Branch {
         };
         io(fs::write(run.join("port"), port.to_string()))?;
         let log = io(fs::OpenOptions::new().create(true).append(true).open(run.join("proxy.log")))?;
-        let child = Command::new(io(env::current_exe())?)
-            .args(["_proxy", &self.name])
+        let mut proxy_command = Command::new(io(env::current_exe())?);
+        if self.engine == Engine::Sqlite { hosted::limit_process(&mut proxy_command, self)?; }
+        let child = proxy_command.env_remove("SNAPSHOTDB_CLEANUP").args(["_proxy", &self.name])
             .stdin(Stdio::null())
             .stdout(Stdio::from(io(log.try_clone())?))
             .stderr(Stdio::from(log))
@@ -676,6 +689,8 @@ impl Branch {
 
     /// Start the engine behind the proxy (also what the proxy calls to resume).
     pub fn start_engine(&self) -> R<()> {
+        let _quota = hosted::start_lock()?;
+        hosted::before_start(self)?;
         pool::writable(self)?;
         if self.engine == Engine::Sqlite || (self.running() && self.run().join("ready-v1").exists()) {
             return Ok(());
@@ -724,6 +739,7 @@ impl Branch {
                     .args(["--port", &port.to_string(), "--bind_ip", "127.0.0.1", "--nounixsocket", "--logappend", "--replSet", "snapshotdb"])
                     .arg("--logpath").arg(run.join("log"))
                     .arg("--pidfilepath").arg(run.join("pid"));
+                if hosted::enabled() { cmd.args(["--wiredTigerCacheSizeGB", "0.5"]); }
                 if self.managed() {
                     // A keyFile turns authentication on; for a single-node set its content is arbitrary.
                     let keyfile = self.dir.join("keyfile");
@@ -772,11 +788,9 @@ impl Branch {
         if clone { io(fs::write(run.join("sandbox-v1"), ""))?; }
         }
         self.ensure_credentials()?;
-        if self.engine == Engine::Postgres && self.source().is_some() && !run.join("ddl-guard-v1").exists() {
-            if self.sql(&format!("SELECT to_regclass('{}.ddl') IS NOT NULL", self.subname()))? == "t" {
-                self.sql(&ddl_replica_sql(&self.subname()))?;
-                io(fs::write(run.join("ddl-guard-v1"), ""))?;
-            }
+        if self.engine == Engine::Postgres && self.source().is_some() && !run.join("ddl-guard-v1").exists() && self.sql(&format!("SELECT to_regclass('{}.ddl') IS NOT NULL", self.subname()))? == "t" {
+            self.sql(&ddl_replica_sql(&self.subname()))?;
+            io(fs::write(run.join("ddl-guard-v1"), ""))?;
         }
         if clone && !run.join("detached").exists() {
             self.detach()?;
@@ -1185,7 +1199,7 @@ impl Branch {
         self.start()?;
         let sub = self.subname();
         let schemas = self.setting("schemas").unwrap_or_else(|| "public".into());
-        let list = schemas.split(',').map(|s| format!("'{}'", s.trim())).collect::<Vec<_>>().join(",");
+        let list = schemas.split(',').map(|s| format!("'{}'", s.trim().replace('\'', "''"))).collect::<Vec<_>>().join(",");
         let columns = |where_tables: &str| format!(
             "SELECT format('%I.%I', n.nspname, c.relname) || '|' || quote_ident(a.attname) || '|' || format_type(a.atttypid, a.atttypmod) \
              FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid JOIN pg_namespace n ON n.oid = c.relnamespace \
@@ -1360,7 +1374,7 @@ fn sync(engine: &str, name: &str, url: &str, schemas: &str, fix_identity: bool) 
     let source_db = url.split_once("://").map(|x| x.1).and_then(|r| r.split(['?', '#']).next()).and_then(|r| r.split_once('/')).map(|x| x.1.to_string()).unwrap_or_default();
     match engine {
         Engine::Postgres => {
-            let list = schemas.split(',').map(|s| format!("'{}'", s.trim())).collect::<Vec<_>>().join(",");
+            let list = schemas.split(',').map(|s| format!("'{}'", s.trim().replace('\'', "''"))).collect::<Vec<_>>().join(",");
             let tables = report.tables.clone();
             let b = Branch::new(name, engine)?;
             let sub = b.subname();
@@ -1384,7 +1398,7 @@ fn sync(engine: &str, name: &str, url: &str, schemas: &str, fix_identity: bool) 
                 .and_then(|_| b.start())
                 .and_then(|_| {
                     if db != "postgres" {
-                        psql(&b.socket_url("postgres")?, &format!("CREATE DATABASE \"{db}\""))?;
+                        psql(&b.socket_url("postgres")?, &format!("CREATE DATABASE \"{}\"", db.replace('"', "\"\"")))?;
                     }
                     // Roles first so GRANTs in the schema dump resolve; roles that already exist error harmlessly.
                     let _ = pipe(
@@ -1559,10 +1573,8 @@ fn create_cold(name: &str, parent: &str) -> R<Branch> {
 }
 
 fn ensure_branch_ready(p: &Branch) -> R<()> {
-    if p.source().is_some() && p.engine == Engine::Mongodb {
-        if p.run().join("tail.failed").exists() || live_pid(&p.run().join("tailpid")).is_none() {
-            return Err(format!("replica {} is not tailing successfully; inspect status and repair before branching", p.name));
-        }
+    if p.source().is_some() && p.engine == Engine::Mongodb && (p.run().join("tail.failed").exists() || live_pid(&p.run().join("tailpid")).is_none()) {
+        return Err(format!("replica {} is not tailing successfully; inspect status and repair before branching", p.name));
     }
     if p.source().is_some() && p.engine == Engine::Mysql {
         let healthy = p.sql("SELECT COUNT(*) FROM performance_schema.replication_connection_status c JOIN performance_schema.replication_applier_status a USING (CHANNEL_NAME) WHERE c.SERVICE_STATE='ON' AND a.SERVICE_STATE='ON'")?;

@@ -110,6 +110,9 @@ pub fn route(raw: Vec<String>) -> R<Option<Vec<String>>> {
             .map_err(|e| e.to_string())?;
         return Ok(Some(normalize(args)?));
     }
+    if matches!(first, "_hosted_up" | "_hosted_down") && crate::hosted::enabled() && env::var("SNAPSHOTDB_INTERNAL").as_deref() == Ok("1") {
+        return Ok(Some(raw));
+    }
     if first == "_proxy" && env::var("SNAPSHOTDB_INTERNAL").as_deref() == Ok("1") {
         return Ok(Some(raw));
     }
@@ -130,7 +133,7 @@ fn allowed_origin<'a>(request: &'a Request, origins: &[String]) -> Option<&'a st
 }
 
 fn reply(request: Request, status: u16, body: Value, origins: &[String]) {
-    let mut response = Response::from_string(body.to_string())
+    let mut response = Response::from_string(if status == 204 { String::new() } else { body.to_string() })
         .with_status_code(status)
         .with_header(Header::from_bytes("Content-Type", "application/json").unwrap())
         .with_header(Header::from_bytes("Cache-Control", "no-store").unwrap())
@@ -154,11 +157,16 @@ fn save_job(dir: &Path, id: &str, value: &Value) -> R<()> {
     fs::rename(temporary, dir.join(format!("{id}.json"))).map_err(|e| e.to_string())
 }
 
-fn run_job(dir: &Path, id: &str, args: Vec<String>) -> R<()> {
+fn run_job(dir: &Path, id: &str, args: Vec<String>, tenant: Option<&str>) -> R<()> {
     save_job(dir, id, &json!({"id": id, "state": "running"}))?;
-    let mut child = Command::new(env::current_exe().map_err(|e| e.to_string())?)
-        .arg("_worker")
+    let mut process = Command::new(env::current_exe().map_err(|e| e.to_string())?);
+    if let Some(tenant) = tenant {
+        process.env("SNAPSHOTDB_HOME", dir.parent().ok_or("missing workspace")?).env("SNAPSHOTDB_TENANT", tenant);
+    }
+    let mut child = process.arg("_worker")
         .env("SNAPSHOTDB_INTERNAL", "1")
+        .env_remove("SNAPSHOTDB_TOKEN")
+        .env_remove("SNAPSHOTDB_HOSTED_TOKEN")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -207,6 +215,8 @@ fn serve(args: &Args) -> R<()> {
         signal_hook::flag::register(signal, stopping.clone()).map_err(|e| e.to_string())?;
     }
     let token = token()?;
+    let gateway_token = env::var("SNAPSHOTDB_HOSTED_TOKEN").ok();
+    if gateway_token.as_ref().is_some_and(|t| t.len() < 32 || t == &token) { return Err("SNAPSHOTDB_HOSTED_TOKEN must be a separate secret of at least 32 characters".into()); }
     let bind: SocketAddr = args
         .flags
         .get("bind")
@@ -273,11 +283,10 @@ fn serve(args: &Args) -> R<()> {
     }
     let server = Server::http(bind).map_err(|e| e.to_string())?;
     // One worker serializes filesystem/engine changes; polling remains responsive.
-    let (tx, rx) = mpsc::sync_channel::<(String, Vec<String>)>(32);
-    let worker_dir = jobs.clone();
+    let (tx, rx) = mpsc::sync_channel::<(std::path::PathBuf, String, Vec<String>, Option<String>)>(32);
     let worker = thread::spawn(move || {
-        for (id, command) in rx {
-            if let Err(error) = run_job(&worker_dir, &id, command) {
+        for (worker_dir, id, command, tenant) in rx {
+            if let Err(error) = run_job(&worker_dir, &id, command, tenant.as_deref()) {
                 let _ = save_job(
                     &worker_dir,
                     &id,
@@ -287,7 +296,23 @@ fn serve(args: &Args) -> R<()> {
         }
     });
     crate::up()?;
+    hosted_lifecycle("_hosted_up");
     drop(startup_lock);
+    let hosted_root = crate::home();
+    let meter_stop = stopping.clone();
+    let monitor = thread::spawn(move || {
+        while !meter_stop.load(std::sync::atomic::Ordering::Relaxed) {
+            for entry in fs::read_dir(hosted_root.join(".tenants")).into_iter().flatten().flatten() {
+                if entry.path().is_dir() {
+                    if let Err(e) = crate::hosted::enforce(&entry.path()) { eprintln!("hosted metering: {e}"); }
+                }
+            }
+            for _ in 0..50 {
+                if meter_stop.load(std::sync::atomic::Ordering::Relaxed) { break; }
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
+    });
     eprintln!(
         "SnapshotDB server listening on {bind}; database files: {}",
         crate::home().display()
@@ -318,17 +343,51 @@ fn serve(args: &Args) -> R<()> {
                     format!("Bearer {token}").as_bytes(),
                 )
         });
-        if !authorized {
+        let gateway = gateway_token.as_ref().is_some_and(|token| request.headers().iter().any(|h|
+            h.field.equiv("Authorization") && same_token(h.value.as_str().as_bytes(), format!("Bearer {token}").as_bytes())));
+        if !authorized && !gateway {
             reply(request, 401, json!({"error": "unauthorized"}));
             continue;
         }
+        let tenant = if gateway {
+            match request.headers().iter().find(|h| h.field.equiv("X-SnapshotDB-Tenant")).map(|h| h.value.as_str().to_owned()) {
+                Some(t) => Some(t),
+                None => { reply(request, 400, json!({"error":"missing hosted identity"})); continue; }
+            }
+        } else { None };
+        let workspace = match tenant.as_ref().map(|t| crate::hosted::tenant_home(&crate::home(),t)).transpose() {
+            Ok(h) => h,
+            Err(e) => { reply(request, 400, json!({"error":e})); continue; }
+        };
+        let request_jobs = workspace.as_ref().map(|h| h.join(".jobs")).unwrap_or_else(|| jobs.clone());
+        // One tenant's I/O failure must not take the shared server down: answer 500 and move on.
+        if let Err(e) = fs::create_dir_all(&request_jobs) { reply(request, 500, json!({"error": e.to_string()})); continue; }
         let path = request.url().to_owned();
+        if let Some(home) = workspace.as_ref() {
+            if request.method() == &Method::Get && path == "/v1/account" {
+                match crate::hosted::usage(home) {
+                    Ok(v) => reply(request,200,v), Err(e) => reply(request,500,json!({"error":e}))
+                }
+                continue;
+            }
+            if request.method() == &Method::Post && matches!(path.as_str(), "/v1/billing/entitlement" | "/v1/billing/checkout") {
+                let mut body = Vec::new();
+                let result = request.as_reader().take(MAX_REQUEST+1).read_to_end(&mut body)
+                    .map_err(|e|e.to_string()).and_then(|_| {
+                        if body.len() as u64 > MAX_REQUEST { return Err("request too large".into()); }
+                        let v = serde_json::from_slice(&body).map_err(|e|e.to_string())?;
+                        if path == "/v1/billing/checkout" { crate::hosted::checkout(home,&v) } else { crate::hosted::entitlement(home,&v).map(|_| json!({"ok":true})) }
+                    });
+                match result { Ok(v) => reply(request,200,v), Err(e) => reply(request,400,json!({"error":e})) }
+                continue;
+            }
+        }
         if request.method() == &Method::Get && path == "/v1/health" {
             reply(request, 200, json!({"version": env!("CARGO_PKG_VERSION")}));
         } else if request.method() == &Method::Get && path.starts_with("/v1/jobs/") {
             let id = &path[9..];
             let value = if valid_job_id(id) {
-                fs::read(jobs.join(format!("{id}.json")))
+                fs::read(request_jobs.join(format!("{id}.json")))
                     .ok()
                     .and_then(|v| serde_json::from_slice::<Value>(&v).ok())
             } else {
@@ -361,12 +420,14 @@ fn serve(args: &Args) -> R<()> {
                     continue;
                 }
             };
-            let id = crate::random_password()?;
-            save_job(&jobs, &id, &json!({"id": id, "state": "queued"}))?;
-            match tx.try_send((id.clone(), command)) {
+            let id = match crate::random_password().and_then(|id| save_job(&request_jobs, &id, &json!({"id": id, "state": "queued"})).map(|_| id)) {
+                Ok(id) => id,
+                Err(e) => { reply(request, 500, json!({"error": e})); continue; }
+            };
+            match tx.try_send((request_jobs.clone(), id.clone(), command, tenant)) {
                 Ok(()) => reply(request, 202, json!({"id": id, "state": "queued"})),
                 Err(_) => {
-                    let _ = fs::remove_file(jobs.join(format!("{id}.json")));
+                    let _ = fs::remove_file(request_jobs.join(format!("{id}.json")));
                     reply(request, 503, json!({"error": "job queue full"}));
                 }
             }
@@ -374,12 +435,28 @@ fn serve(args: &Args) -> R<()> {
             reply(request, 404, json!({"error": "unknown endpoint"}));
         }
     }
+    let _ = monitor.join();
     drop(tx);
     worker
         .join()
         .map_err(|_| "command worker panicked during shutdown")?;
+    hosted_lifecycle("_hosted_down");
     let _shutdown_lock = worker_lock(false)?;
     crate::down()
+}
+
+fn hosted_lifecycle(action: &str) {
+    for entry in fs::read_dir(crate::home().join(".tenants")).into_iter().flatten().flatten() {
+        let tenant = entry.file_name().to_string_lossy().to_string();
+        if crate::hosted::tenant_home(&crate::home(), &tenant).is_err() { continue; }
+        let result = env::current_exe().map_err(|e|e.to_string()).and_then(|exe| {
+            Command::new(exe).arg(action).env("SNAPSHOTDB_HOME",entry.path())
+                .env("SNAPSHOTDB_TENANT",tenant).env("SNAPSHOTDB_INTERNAL","1")
+                .env_remove("SNAPSHOTDB_TOKEN").env_remove("SNAPSHOTDB_HOSTED_TOKEN")
+                .status().map_err(|e|e.to_string())
+        });
+        if !result.is_ok_and(|s|s.success()) { eprintln!("hosted lifecycle {action} failed for {}",entry.path().display()); }
+    }
 }
 
 fn same_token(a: &[u8], b: &[u8]) -> bool {
