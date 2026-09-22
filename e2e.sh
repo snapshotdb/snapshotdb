@@ -284,7 +284,7 @@ if [ "${E2E_POSTGRES_ONLY:-0}" != 1 ] && command -v mongod >/dev/null && command
   $B rm mg2; $B rm mg
 fi
 
-check "no proxies left" "$(pgrep -f 'snapshotdb _proxy (src|prod|dev|dev2|msrc|mrep|mdev|mg|mg2)$' | wc -l | tr -d ' ')" 0
+check "no proxies left" "$(pgrep -f "^$B _proxy (src|prod|dev|dev2|msrc|mrep|mdev|mg|mg2)$" | wc -l | tr -d ' ')" 0
 kill "$server_pid"; wait "$server_pid" 2>/dev/null
 trap - EXIT
 rm -rf "$SNAPSHOTDB_HOME"
