@@ -15,6 +15,10 @@ use std::{
 use tiny_http::{Header, Method, Request, Response, Server};
 
 const MAX_REQUEST: u64 = 64 * 1024;
+/// Per-stream job output kept in memory and on disk; the tail holds the error.
+const MAX_OUTPUT: usize = 1024 * 1024;
+/// Finished job files are served to pollers for this long, then deleted.
+const JOB_TTL: Duration = Duration::from_secs(24 * 3600);
 
 pub fn worker_lock(nonblocking: bool) -> R<fs::File> {
     let file = fs::OpenOptions::new()
@@ -157,7 +161,33 @@ fn save_job(dir: &Path, id: &str, value: &Value) -> R<()> {
     fs::rename(temporary, dir.join(format!("{id}.json"))).map_err(|e| e.to_string())
 }
 
+/// Read a stream to the end, keeping only its last MAX_OUTPUT bytes.
+fn tail(mut r: impl Read + Send + 'static) -> thread::JoinHandle<Vec<u8>> {
+    thread::spawn(move || {
+        let (mut keep, mut buf) = (Vec::new(), [0u8; 8192]);
+        while let Ok(n @ 1..) = r.read(&mut buf) {
+            keep.extend_from_slice(&buf[..n]);
+            if keep.len() > 2 * MAX_OUTPUT { keep.drain(..keep.len() - MAX_OUTPUT); }
+        }
+        if keep.len() > MAX_OUTPUT { keep.drain(..keep.len() - MAX_OUTPUT); }
+        keep
+    })
+}
+
+/// Delete finished jobs older than JOB_TTL. Running jobs keep their file however old.
+fn prune_jobs(dir: &Path) {
+    for entry in fs::read_dir(dir).into_iter().flatten().flatten() {
+        let path = entry.path();
+        let old = entry.metadata().and_then(|m| m.modified()).is_ok_and(|m| m.elapsed().unwrap_or_default() > JOB_TTL);
+        if old && path.extension().is_some_and(|e| e == "json")
+            && fs::read_to_string(&path).is_ok_and(|t| t.contains("\"state\":\"done\"")) {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
 fn run_job(dir: &Path, id: &str, args: Vec<String>, tenant: Option<&str>) -> R<()> {
+    prune_jobs(dir);
     save_job(dir, id, &json!({"id": id, "state": "running"}))?;
     let mut process = Command::new(env::current_exe().map_err(|e| e.to_string())?);
     if let Some(tenant) = tenant {
@@ -179,12 +209,14 @@ fn run_job(dir: &Path, id: &str, args: Vec<String>, tenant: Option<&str>) -> R<(
         .unwrap()
         .write_all(&input)
         .map_err(|e| e.to_string())?;
-    let output = child.wait_with_output().map_err(|e| e.to_string())?;
+    let (stdout, stderr) = (tail(child.stdout.take().unwrap()), tail(child.stderr.take().unwrap()));
+    let status = child.wait().map_err(|e| e.to_string())?;
+    let (stdout, stderr) = (stdout.join().unwrap_or_default(), stderr.join().unwrap_or_default());
     save_job(
         dir,
         id,
-        &json!({"id": id, "state": "done", "exit_code": output.status.code().unwrap_or(1),
-        "stdout": String::from_utf8_lossy(&output.stdout), "stderr": String::from_utf8_lossy(&output.stderr)}),
+        &json!({"id": id, "state": "done", "exit_code": status.code().unwrap_or(1),
+        "stdout": String::from_utf8_lossy(&stdout), "stderr": String::from_utf8_lossy(&stderr)}),
     )
 }
 
@@ -560,6 +592,26 @@ fn client(mut args: Vec<String>) -> R<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn job_output_keeps_the_tail_and_old_finished_jobs_expire() {
+        let big: Vec<u8> = (0..3 * MAX_OUTPUT + 5).map(|i| (i % 251) as u8).collect();
+        let kept = tail(std::io::Cursor::new(big.clone())).join().unwrap();
+        assert_eq!(kept, big[big.len() - MAX_OUTPUT..]);
+
+        let dir = env::temp_dir().join(format!("snapshotdb-jobs-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let old = std::time::SystemTime::now() - JOB_TTL - Duration::from_secs(60);
+        for (name, body, age) in [("done-old", "{\"state\":\"done\"}", Some(old)), ("running-old", "{\"state\":\"running\"}", Some(old)), ("done-new", "{\"state\":\"done\"}", None)] {
+            let path = dir.join(format!("{name}.json"));
+            fs::write(&path, body).unwrap();
+            if let Some(t) = age { fs::File::options().write(true).open(&path).unwrap().set_modified(t).unwrap(); }
+        }
+        prune_jobs(&dir);
+        assert!(!dir.join("done-old.json").exists());
+        assert!(dir.join("running-old.json").exists() && dir.join("done-new.json").exists());
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn commands_cannot_invoke_server_internals() {
         for command in ["serve", "_worker", "_proxy", "service", "up", "../rm"] {

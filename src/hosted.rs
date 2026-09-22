@@ -130,13 +130,30 @@ pub fn charge_transfer(count: usize) -> R<()> {
 }
 
 pub fn copy_out(input: &mut impl std::io::Read, output: &mut impl std::io::Write) -> R<()> {
-    let mut buf=[0u8;65536];
-    loop {
-        let n=input.read(&mut buf).map_err(|e|e.to_string())?;
-        if n==0 { return Ok(()); }
-        charge_transfer(n)?;
-        output.write_all(&buf[..n]).map_err(|e|e.to_string())?;
-    }
+    metered_copy(input, output, charge_transfer)
+}
+
+/// Charge in batches (1 MiB or 1 s), not per 64 KiB read: each charge is an IMMEDIATE
+/// SQLite transaction. A busy/failed charge is retried with the next batch instead of
+/// cutting the client's connection; only an exhausted allowance does that. A connection
+/// can overrun its allowance by at most one batch.
+fn metered_copy(input: &mut impl std::io::Read, output: &mut impl std::io::Write, mut charge: impl FnMut(usize) -> R<()>) -> R<()> {
+    let (mut buf, mut pending, mut last) = ([0u8; 65536], 0usize, Instant::now());
+    let result = loop {
+        let n = match input.read(&mut buf) { Ok(0) => break Ok(()), Ok(n) => n, Err(e) => break Err(e.to_string()) };
+        pending += n;
+        if pending >= 1 << 20 || last.elapsed() >= Duration::from_secs(1) {
+            last = Instant::now();
+            match charge(pending) {
+                Ok(()) => pending = 0,
+                Err(e) if e.starts_with("PLAN_LIMIT") => return Err(e),
+                Err(e) => eprintln!("transfer charge deferred: {e}"),
+            }
+        }
+        if let Err(e) = output.write_all(&buf[..n]) { break Err(e.to_string()); }
+    };
+    if pending > 0 { if let Err(e) = charge(pending) { eprintln!("transfer charge lost ({pending} bytes): {e}"); } }
+    result
 }
 pub fn before_start(b: &Branch) -> R<()> {
     if !enabled() { return Ok(()); }
@@ -335,6 +352,19 @@ mod tests {
         assert_eq!(checkout(&h,&json!({})).unwrap()["url"],"https://rzp.io/example");
         fs::remove_dir_all(h).unwrap();
     }
+    #[test]
+    fn transfer_is_charged_in_batches_and_busy_charges_are_retried() {
+        let data = vec![7u8; (3 << 20) + 100];
+        let (mut out, mut charges, mut busy) = (Vec::new(), Vec::new(), true);
+        metered_copy(&mut &data[..], &mut out, |n| { if std::mem::take(&mut busy) { return Err("database is locked".into()); } charges.push(n); Ok(()) }).unwrap();
+        assert_eq!(out, data);
+        assert_eq!(charges.iter().sum::<usize>(), data.len(), "every byte is charged exactly once");
+        assert!(charges.len() <= 4, "batched, not per read: {charges:?}");
+        let mut sent = Vec::new();
+        let r = metered_copy(&mut &data[..], &mut sent, |_| Err("PLAN_LIMIT: Data transfer allowance reached.".into()));
+        assert!(r.unwrap_err().starts_with("PLAN_LIMIT") && sent.len() < 2 << 20);
+    }
+
     #[test]
     fn hosted_sources_must_be_public_network_urls() {
         for url in ["postgresql:///postgres?host=/srv/.tenants/github-1/prod/run&port=5433",
