@@ -1929,14 +1929,22 @@ fn pipe(producer: &mut Command, consumer: &mut Command) -> R<String> {
     let pname = producer.get_program().to_string_lossy().into_owned();
     let cname = consumer.get_program().to_string_lossy().into_owned();
     let mut p = producer.stdout(Stdio::piped()).spawn().map_err(|e| format!("{pname}: {e}"))?;
-    let c = consumer.stdin(p.stdout.take().unwrap()).output().map_err(|e| format!("{cname}: {e}"))?;
+    let c = consumer.stdin(p.stdout.take().unwrap()).output();
+    // Command keeps the pipe's read end until it is dropped. Release it now, or a consumer
+    // that exits early leaves the producer blocked on a full pipe and p.wait() never returns.
+    consumer.stdin(Stdio::null());
+    let c = match c {
+        Ok(c) => c,
+        Err(e) => { let _ = p.kill(); let _ = p.wait(); return Err(format!("{cname}: {e}")); }
+    };
     let status = p.wait().map_err(|e| e.to_string())?;
-    if !status.success() {
-        return Err(format!("{pname} failed ({status})"));
-    }
     let text = format!("{}{}", String::from_utf8_lossy(&c.stdout), String::from_utf8_lossy(&c.stderr));
+    // The consumer's failure is the cause; the producer then only reports a broken pipe.
     if !c.status.success() {
         return Err(format!("{cname} failed:\n{text}"));
+    }
+    if !status.success() {
+        return Err(format!("{pname} failed ({status})"));
     }
     Ok(text)
 }
@@ -2124,6 +2132,14 @@ while (true) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pipe_returns_when_the_consumer_exits_without_reading() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        thread::spawn(move || { let _ = tx.send(pipe(&mut Command::new("yes"), &mut Command::new("false"))); });
+        let result = rx.recv_timeout(Duration::from_secs(10)).expect("pipe deadlocked on an early-exiting consumer");
+        assert!(result.unwrap_err().starts_with("false failed"));
+    }
 
     #[test]
     fn public_urls_use_server_host_and_maintenance_stays_on_loopback() {
