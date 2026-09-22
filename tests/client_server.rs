@@ -75,7 +75,9 @@ struct Fixture {
 }
 impl Drop for Fixture {
     fn drop(&mut self) {
-        let _ = self.server.kill();
+        // SIGTERM, not SIGKILL: the server must stop the detached proxies it spawned,
+        // or they outlive the test holding ports.
+        let _ = Command::new("kill").args(["-TERM", &self.server.id().to_string()]).status();
         let _ = self.server.wait();
         let _ = fs::remove_dir_all(&self.base);
     }

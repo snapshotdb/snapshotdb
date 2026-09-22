@@ -627,8 +627,19 @@ impl Branch {
         let marker = self.run().join("starting");
         let t = Instant::now();
         loop {
-            if fs::OpenOptions::new().write(true).create_new(true).open(&marker).is_ok() {
-                return Ok(Hold(marker));
+            match fs::OpenOptions::new().write(true).create_new(true).open(&marker) {
+                Ok(_) => return Ok(Hold(marker)),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => (),
+                // A branch whose run/ was never created: make it (not recursively, so a
+                // deleted branch still errors) rather than spin on a marker that can't exist.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    match fs::create_dir(self.run()) {
+                        Ok(()) => continue,
+                        Err(d) if d.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                        Err(d) => return Err(format!("{}: {d}", self.name)),
+                    }
+                }
+                Err(e) => return Err(format!("{}: {e}", self.name)),
             }
             let stale = marker.metadata().and_then(|m| m.modified()).map(|m| m.elapsed().unwrap_or_default() > Duration::from_secs(300)).unwrap_or(true);
             if stale {
