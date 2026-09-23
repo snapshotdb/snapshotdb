@@ -249,42 +249,6 @@ function openDeployment(){
     el('div',{class:'body'},el('label',{},'Deployment mode'),mode),
     foot(btn('ghost','Cancel',()=>m.remove()),btn('primary','Save',()=>{cfg.byoc=mode.value==='byoc';connection.abort();connection=new AbortController();branches=[];statusCache={};plan=null;m.remove();renderUsage();if(cfg.byoc)openConn();else load();}),...(cfg.byoc?[btn('ghost','BYOC server settings',()=>{m.remove();openConn();})]:[]))));
 }
-let razorpayScript;
-function loadRazorpay(){
-  if(window.Razorpay)return Promise.resolve();
-  if(razorpayScript)return razorpayScript;
-  razorpayScript=new Promise((resolve,reject)=>{
-    const script=document.createElement('script');
-    const timer=setTimeout(()=>fail(),15000);
-    function fail(){clearTimeout(timer);script.remove();razorpayScript=null;reject(new Error('Could not load payment checkout. Please retry.'));}
-    script.src='https://checkout.razorpay.com/v1/checkout.js';
-    script.onload=()=>{clearTimeout(timer);if(window.Razorpay)resolve();else fail();};
-    script.onerror=fail;document.head.append(script);
-  });
-  return razorpayScript;
-}
-async function standardCheckout(button){
-  button.disabled=true;
-  try{
-    await loadRazorpay();
-    const response=await fetch('/api/create-order',{method:'POST'});
-    const order=await response.json();if(!response.ok)throw new Error(order.error);
-    const checkout=new window.Razorpay({key:order.key_id,amount:order.amount,currency:order.currency,order_id:order.order_id,
-      name:'SnapshotDB',description:'Test payment — does not activate Pro',
-      modal:{ondismiss:()=>{button.disabled=false;toast('ok','Checkout closed','No payment was confirmed.');}},
-      handler:async result=>{
-        try{
-          const response=await fetch('/api/verify-payment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(result)});
-          const value=await response.json();if(!response.ok)throw new Error(value.error);
-          toast(value.success?'ok':'warn',value.success?'Test payment verified':'Payment pending',value.message);
-        }catch(error){toast('err','Verification failed',error.message);}
-        finally{button.disabled=false;}
-      }
-    });
-    checkout.on('payment.failed',event=>{button.disabled=false;toast('err','Payment failed',event.error?.description||'Please try again.');});
-    checkout.open();
-  }catch(error){button.disabled=false;toast('err','Checkout unavailable',error.message);}
-}
 async function checkout(button){
   button.disabled=true;
   try{const r=await fetch('/api/billing/checkout',{method:'POST'});const value=await r.json();if(!r.ok)throw new Error(value.error);window.location.assign(value.url);}
@@ -302,7 +266,7 @@ function openBilling(reason=''){
       el('p',{class:'hint'},'One database running for one hour uses one branch-hour. Running source replicas also count. Concurrent databases add together. Allowances stop compute at the limit; there are no automatic overage charges.'),
       plan?el('p',{},'Used: '+(plan.used_seconds/3600).toFixed(2)+' / '+(plan.limit_seconds/3600)+' hours'+(plan.period_end?' · Renews '+new Date(plan.period_end*1000).toLocaleDateString():'')):null,
       cfg.byoc?el('p',{},'BYOC uses your infrastructure and is outside hosted usage billing.'):null),
-    foot(btn('ghost','Close',()=>m.remove()),...(!cfg.byoc?[btn('ghost','Test payment · ₹1',e=>standardCheckout(e.currentTarget))]:[]),...(!cfg.byoc&&!pro?[upgrade]:[]),...(!cfg.byoc&&pro?[btn('ghost','Cancel renewal',async()=>{
+    foot(btn('ghost','Close',()=>m.remove()),...(!cfg.byoc&&!pro?[upgrade]:[]),...(!cfg.byoc&&pro?[btn('ghost','Cancel renewal',async()=>{
       if(!window.confirm('Cancel Pro renewal? You keep access until the paid period ends.'))return;
       try{const r=await fetch('/api/billing/cancel',{method:'POST'});const v=await r.json();if(!r.ok)throw new Error(v.error);toast('ok','Subscription',v.message);m.remove();}catch(e){toast('err','Cancellation failed',e.message);}
     })]:[]))));
@@ -488,6 +452,9 @@ setInterval(()=>{ if($('#healthDot').classList.contains('ok'))
     cmdJSON(['status',b.name]).then(s=>{if(disposed)return;statusCache[b.name]=s;patchSource(b.name);}).catch(()=>{});
 },6000);
 
+// Back from Dodo checkout. Access comes from the webhook; the 15 s refresh above shows it.
+{const q=new URLSearchParams(location.search);if(q.get('billing')==='return'){history.replaceState(null,'',location.pathname);
+  const ok=q.get('status')==='active';toast(ok?'ok':'err',ok?'Payment received':'Checkout not completed',ok?'Pro activates within a few seconds.':'No subscription was started. You can retry from Plan & usage.');}}
 load();
   return () => { disposed=true;lifecycle.abort();connection.abort();window.removeEventListener('keydown',onKey);__timers.forEach((id) => clearInterval(id));$('#modalHost')?.replaceChildren(); };
 }

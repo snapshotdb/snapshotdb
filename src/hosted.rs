@@ -279,15 +279,23 @@ pub fn entitlement(home: &Path, v: &Value) -> R<()> {
     let timestamp = v["event_time"].as_i64().ok_or("missing event time")?;
     let customer = v["customer"].as_str().ok_or("missing customer")?;
     let subscription = v["subscription"].as_str().ok_or("missing subscription")?;
-    let start = v["period_start"].as_i64().ok_or("missing period start")?;
-    let end = v["period_end"].as_i64().ok_or("missing period end")?;
     let paid = v["paid"].as_bool().ok_or("missing paid state")?;
-    if start <= 0 || end <= start || end-start > 32*86400 { return Err("invalid monthly billing period".into()); }
     let mut c = db(home)?;
     let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
     let inserted = tx.execute("INSERT OR IGNORE INTO events(id) VALUES(?1)", [event]).map_err(|e| e.to_string())?;
     if inserted > 0 {
-        tx.execute("UPDATE account SET customer=?1,subscription=?2,period_start=?3,period_end=?4,paid=?5,event_time=?6 WHERE id=1 AND event_time<=?6", params![customer,subscription,start,end,paid,timestamp]).map_err(|e| e.to_string())?;
+        if paid {
+            let start = v["period_start"].as_i64().ok_or("missing period start")?;
+            let end = v["period_end"].as_i64().ok_or("missing period end")?;
+            if start <= 0 || end <= start || end-start > 32*86400 { return Err("invalid monthly billing period".into()); }
+            tx.execute("UPDATE account SET customer=?1,subscription=?2,period_start=?3,period_end=?4,paid=1,event_time=?5 WHERE id=1 AND event_time<=?5", params![customer,subscription,start,end,timestamp]).map_err(|e| e.to_string())?;
+        } else {
+            // Ending access needs no billing period (a failed first payment has none), but only
+            // the subscription on file can end it: a stray failure must not revoke a working plan.
+            tx.execute("UPDATE account SET customer=?1,subscription=?2,paid=0,event_time=?3 WHERE id=1 AND event_time<=?3 AND (subscription=?2 OR subscription='' OR paid=0)", params![customer,subscription,timestamp]).map_err(|e| e.to_string())?;
+        }
+        // Any outcome (paid, failed, cancelled) means the reserved checkout link was used.
+        tx.execute("DELETE FROM checkout WHERE id=1", []).map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())
 }
@@ -347,9 +355,21 @@ mod tests {
     fn checkout_reservation_prevents_duplicate_creation() {
         let h=fixture();let v=checkout(&h,&json!({})).unwrap();
         assert!(checkout(&h,&json!({})).is_err());
-        assert!(checkout(&h,&json!({"nonce":"wrong","url":"https://rzp.io/example"})).is_err());
-        checkout(&h,&json!({"nonce":v["nonce"],"url":"https://rzp.io/example"})).unwrap();
-        assert_eq!(checkout(&h,&json!({})).unwrap()["url"],"https://rzp.io/example");
+        assert!(checkout(&h,&json!({"nonce":"wrong","url":"https://test.checkout.dodopayments.com/session/cks_1"})).is_err());
+        checkout(&h,&json!({"nonce":v["nonce"],"url":"https://test.checkout.dodopayments.com/session/cks_1"})).unwrap();
+        assert_eq!(checkout(&h,&json!({})).unwrap()["url"],"https://test.checkout.dodopayments.com/session/cks_1");
+        let time=now();
+        entitlement(&h,&json!({"event_id":"paid","event_time":time,"customer":"cus_1","subscription":"sub_1","period_start":time,"period_end":time+1000,"paid":true})).unwrap();
+        assert!(checkout(&h,&json!({})).unwrap()["nonce"].is_string(), "a completed payment frees the reservation");
+        // A declined first payment has no period; it still frees the link it used.
+        let ended=|id:&str,sub:&str,t:i64| entitlement(&h,&json!({"event_id":id,"event_time":t,"customer":"cus_1","subscription":sub,"paid":false}));
+        ended("stray","sub_other",time+1).unwrap();
+        assert_eq!(usage(&h).unwrap()["plan"],"pro", "another subscription's failure keeps the working plan");
+        checkout(&h,&json!({})).unwrap();
+        assert!(checkout(&h,&json!({})).is_err(), "reservation is held");
+        ended("failed","sub_1",time+2).unwrap();
+        assert_eq!(usage(&h).unwrap()["plan"],"free");
+        assert!(checkout(&h,&json!({})).unwrap()["nonce"].is_string(), "any outcome frees the reservation");
         fs::remove_dir_all(h).unwrap();
     }
     #[test]

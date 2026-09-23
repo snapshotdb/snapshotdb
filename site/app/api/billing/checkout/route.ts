@@ -1,6 +1,6 @@
 import { getSession } from "@/app/console/auth";
 import { account, hostedFetch, sameOrigin, tenantFor } from "@/app/console/hosted";
-import { razorpay, verifiedPlan } from "@/app/console/razorpay";
+import { checkoutUrl, dodo, SUBSCRIPTION_ID, verifiedProduct } from "@/app/console/dodo";
 
 export async function POST(request: Request) {
   if (!sameOrigin(request)) return Response.json({ error: "Invalid origin" }, { status: 403 });
@@ -10,28 +10,32 @@ export async function POST(request: Request) {
     const tenant = tenantFor(user);
     const current = await account(tenant);
     if (current.plan === "pro") return Response.json({ error: "You already have Pro. Your allowance renews next billing period." }, { status: 409 });
-    if (current.subscription && !/^sub_[A-Za-z0-9]+$/.test(current.subscription)) throw new Error("Invalid subscription on file; contact support");
+    if (current.subscription && !SUBSCRIPTION_ID.test(current.subscription)) throw new Error("Invalid subscription on file; contact support");
     if (current.subscription) {
-      const existing = await razorpay(`subscriptions/${current.subscription}`);
-      if (!["cancelled", "completed", "expired"].includes(existing.status)) {
+      const existing = await dodo(`/subscriptions/${current.subscription}`);
+      if (!["cancelled", "expired", "failed"].includes(existing.status)) {
         return Response.json({ error: "A subscription already exists. Refresh usage or contact support to resolve its payment status." }, { status: 409 });
       }
     }
-    const planId = await verifiedPlan();
+    const productId = await verifiedProduct();
+    // One checkout per tenant at a time: the backend hands out a nonce, or the link already made.
     const reservation = await hostedFetch(tenant, "/v1/billing/checkout", { method: "POST", body: "{}" });
     const pending = await reservation.json();
     if (!reservation.ok) return Response.json(pending, { status: 409 });
-    const checkoutUrl = (raw: string) => {
-      const url = new URL(raw);
-      if (url.protocol !== "https:" || !["rzp.io", "rzp.co", "razorpay.com"].includes(url.hostname)) throw new Error("Invalid checkout URL");
-      return url;
-    };
-    if (pending.url) return Response.json({ url: checkoutUrl(pending.url).toString() });
-    const sub = await razorpay("subscriptions", { plan_id: planId, total_count: 120, quantity: 1, customer_notify: true, expire_by: Math.floor(Date.now()/1000)+1800, notes: { tenant } });
-    const url = checkoutUrl(sub.short_url);
-    const saved = await hostedFetch(tenant, "/v1/billing/checkout", { method: "POST", body: JSON.stringify({ nonce: pending.nonce, url: url.toString() }) });
+    if (pending.url) return Response.json({ url: checkoutUrl(pending.url) });
+    const session = await dodo("/checkouts", { body: {
+      product_cart: [{ product_id: productId, quantity: 1 }],
+      // Charge the list price everywhere. Otherwise Dodo offers the visitor's local currency
+      // and discount codes, and the webhook (which requires USD >= $150) would never grant Pro.
+      billing_currency: "USD",
+      feature_flags: { allow_currency_selection: false, allow_discount_code: false },
+      return_url: new URL("/console?billing=return", request.url).toString(),
+      metadata: { tenant },
+    } });
+    const url = checkoutUrl(session.checkout_url);
+    const saved = await hostedFetch(tenant, "/v1/billing/checkout", { method: "POST", body: JSON.stringify({ nonce: pending.nonce, url }) });
     if (!saved.ok) throw new Error("Could not save checkout. Please try again shortly.");
-    return Response.json({ url: url.toString() });
+    return Response.json({ url });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : "Checkout unavailable" }, { status: 503 });
   }
