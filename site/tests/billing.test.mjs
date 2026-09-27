@@ -13,7 +13,7 @@ test('activation and renewal at full price grant the charged period',()=>{
   for(const type of ['subscription.active','subscription.renewed']){
     const e=subscriptionEntitlement(event(type),'msg_1','pdt_pro');
     assert.equal(e.tenant,'github-42');
-    assert.deepEqual(e.body,{event_id:'msg_1',event_time:1790157600,customer:'cus_1',subscription:'sub_123',period_start:1790157600,period_end:1792749600,paid:true});
+    assert.deepEqual(e.body,{event_id:'msg_1',event_time:1790157600,event_time_ms:1790157600000,customer:'cus_1',subscription:'sub_123',period_start:1790157600,period_end:1792749600,paid:true});
   }
 });
 test('events that do not pay never grant Pro',()=>{
@@ -22,14 +22,26 @@ test('events that do not pay never grant Pro',()=>{
   assert.equal(subscriptionEntitlement(event('subscription.active',{currency:'INR'}),'m','pdt_pro'),null);
   assert.equal(subscriptionEntitlement(event('subscription.active',{quantity:2}),'m','pdt_pro'),null);
   assert.equal(subscriptionEntitlement(event('subscription.active',{status:'pending'}),'m','pdt_pro'),null);
+  assert.equal(subscriptionEntitlement(event('subscription.active',{recurring_pre_tax_amount:undefined}),'m','pdt_pro'),null);
   assert.equal(subscriptionEntitlement(event(),'m','pdt_other'),null);
 });
 test('immediate cancellation, failure and expiry end access; scheduled cancellation does not',()=>{
   for(const type of ['subscription.failed','subscription.expired','subscription.cancelled'])assert.equal(subscriptionEntitlement(event(type,{status:'cancelled'}),'m','pdt_pro').body.paid,false);
   // Seen from Dodo on a declined first payment: no usable billing period, still must end access.
   assert.deepEqual(subscriptionEntitlement(event('subscription.failed',{status:'failed',next_billing_date:'2026-09-23T10:00:00Z'}),'m','pdt_pro').body,
-    {event_id:'m',event_time:1790157600,customer:'cus_1',subscription:'sub_123',paid:false});
+    {event_id:'m',event_time:1790157600,event_time_ms:1790157600000,customer:'cus_1',subscription:'sub_123',paid:false});
   assert.equal(subscriptionEntitlement(event('subscription.cancelled',{cancel_at_next_billing_date:true}),'m','pdt_pro'),null);
+});
+test('event order retains milliseconds and checkout correlation comes from signed metadata',()=>{
+  const e=event('subscription.active',{metadata:{tenant:'github-42',checkout_nonce:'a'.repeat(32)}});
+  e.timestamp='2026-09-23T10:00:00.123Z';
+  const first=subscriptionEntitlement(e,'first','pdt_pro');
+  e.timestamp='2026-09-23T10:00:00.987Z';
+  const second=subscriptionEntitlement(e,'second','pdt_pro');
+  assert.equal(first.body.event_time_ms,1790157600123);
+  assert.equal(second.body.event_time_ms,1790157600987);
+  assert.equal(first.body.checkout_nonce,'a'.repeat(32));
+  assert.equal(subscriptionEntitlement(event(),'legacy','pdt_pro').body.checkout_nonce,undefined);
 });
 test('a paid event without a trustworthy tenant or period is rejected, not granted',()=>{
   assert.throws(()=>subscriptionEntitlement(event('subscription.active',{metadata:{}}),'m','pdt_pro'),/identity/);

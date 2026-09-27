@@ -70,11 +70,13 @@ export function subscriptionEntitlement(event: Record<string, any>, eventId: str
   const ended = ["subscription.failed", "subscription.expired"].includes(event.type)
     || (event.type === "subscription.cancelled" && !s.cancel_at_next_billing_date);
   if (!paid && !ended) return null;
-  if (paid && (s.status !== "active" || s.quantity !== 1 || s.currency !== "USD" || s.recurring_pre_tax_amount < PRO_PRICE)) return null;
+  if (paid && (s.status !== "active" || s.quantity !== 1 || s.currency !== "USD" || !Number.isSafeInteger(s.recurring_pre_tax_amount) || s.recurring_pre_tax_amount < PRO_PRICE)) return null;
   if (!TENANT.test(s.metadata?.tenant || "") || !SUBSCRIPTION_ID.test(s.subscription_id || "")) throw new Error("Invalid billing identity");
   const at = seconds(event.timestamp);
   if (!Number.isInteger(at)) throw new Error("Invalid event time");
-  const base = { event_id: eventId, event_time: at, customer: s.customer?.customer_id || "", subscription: s.subscription_id };
+  const nonce = s.metadata?.checkout_nonce;
+  const base = { event_id: eventId, event_time: at, event_time_ms: Date.parse(event.timestamp), customer: s.customer?.customer_id || "", subscription: s.subscription_id,
+    ...(typeof nonce === "string" && /^[a-f0-9]{32}$/.test(nonce) ? { checkout_nonce: nonce } : {}) };
   // Ending access needs no period: a failed first payment never had one.
   if (!paid) return { tenant: s.metadata.tenant as string, body: { ...base, paid: false } };
   const start = seconds(s.previous_billing_date), end = seconds(s.next_billing_date);
