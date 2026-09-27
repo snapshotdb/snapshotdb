@@ -12,6 +12,7 @@ mod preflight;
 mod hosted;
 mod proxy;
 mod remote;
+mod jobs;
 mod pool;
 mod sqlite;
 mod sandbox;

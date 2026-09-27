@@ -5,10 +5,10 @@ use std::{
     env, fs,
     io::{Read, Write},
     net::SocketAddr,
-    os::unix::fs::PermissionsExt,
+    os::unix::{fs::PermissionsExt, process::CommandExt},
     path::Path,
     process::{Command, Stdio},
-    sync::mpsc,
+    sync::{Arc, atomic::{AtomicBool, Ordering}},
     thread,
     time::Duration,
 };
@@ -186,7 +186,7 @@ fn prune_jobs(dir: &Path) {
     }
 }
 
-fn run_job(dir: &Path, id: &str, args: Vec<String>, tenant: Option<&str>) -> R<()> {
+fn run_job(dir: &Path, id: &str, args: Vec<String>, tenant: Option<&str>, timeout: Duration, stopping: &AtomicBool) -> R<()> {
     prune_jobs(dir);
     save_job(dir, id, &json!({"id": id, "state": "running"}))?;
     let mut process = Command::new(env::current_exe().map_err(|e| e.to_string())?);
@@ -200,6 +200,7 @@ fn run_job(dir: &Path, id: &str, args: Vec<String>, tenant: Option<&str>) -> R<(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .process_group(0)
         .spawn()
         .map_err(|e| e.to_string())?;
     let input = serde_json::to_vec(&args).map_err(|e| e.to_string())?;
@@ -210,13 +211,32 @@ fn run_job(dir: &Path, id: &str, args: Vec<String>, tenant: Option<&str>) -> R<(
         .write_all(&input)
         .map_err(|e| e.to_string())?;
     let (stdout, stderr) = (tail(child.stdout.take().unwrap()), tail(child.stderr.take().unwrap()));
-    let status = child.wait().map_err(|e| e.to_string())?;
+    let started = std::time::Instant::now();
+    let mut interrupted = None;
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            // A crashed/exited worker may leave a client holding its output pipe.
+            unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL); }
+            break status;
+        }
+        if stopping.load(Ordering::Relaxed) || started.elapsed() >= timeout {
+            interrupted = Some(if stopping.load(Ordering::Relaxed) { "Server shutting down" } else { "Job execution deadline exceeded" });
+            // This worker started in its own group. Kill its client/dump/restore
+            // descendants too, so inherited output pipes cannot hang the join.
+            unsafe { libc::kill(-(child.id() as i32), libc::SIGKILL); }
+            break child.wait().map_err(|e| e.to_string())?;
+        }
+        thread::sleep(Duration::from_millis(25));
+    };
     let (stdout, stderr) = (stdout.join().unwrap_or_default(), stderr.join().unwrap_or_default());
     save_job(
         dir,
         id,
-        &json!({"id": id, "state": "done", "exit_code": status.code().unwrap_or(1),
-        "stdout": String::from_utf8_lossy(&stdout), "stderr": String::from_utf8_lossy(&stderr)}),
+        &json!({"id": id, "state": "done", "exit_code": if interrupted.is_some() {124} else {status.code().unwrap_or(1)},
+        "stdout": String::from_utf8_lossy(&stdout), "stderr": match interrupted {
+            Some(reason) => format!("{}\n{reason}. Inspect database state before retrying; the command was not rolled back.\n", String::from_utf8_lossy(&stderr)),
+            None => String::from_utf8_lossy(&stderr).into_owned(),
+        }}),
     )
 }
 
@@ -247,6 +267,10 @@ fn serve(args: &Args) -> R<()> {
         signal_hook::flag::register(signal, stopping.clone()).map_err(|e| e.to_string())?;
     }
     let token = token()?;
+    let job_timeout = match env::var("SNAPSHOTDB_JOB_TIMEOUT_SECONDS") {
+        Ok(value) => value.parse::<u64>().ok().filter(|n| (1..=86400).contains(n)).ok_or("SNAPSHOTDB_JOB_TIMEOUT_SECONDS must be 1-86400")?,
+        Err(_) => 3600,
+    };
     let gateway_token = env::var("SNAPSHOTDB_HOSTED_TOKEN").ok();
     if gateway_token.as_ref().is_some_and(|t| t.len() < 32 || t == &token) { return Err("SNAPSHOTDB_HOSTED_TOKEN must be a separate secret of at least 32 characters".into()); }
     let bind: SocketAddr = args
@@ -314,19 +338,19 @@ fn serve(args: &Args) -> R<()> {
         }
     }
     let server = Server::http(bind).map_err(|e| e.to_string())?;
-    // One worker serializes filesystem/engine changes; polling remains responsive.
-    let (tx, rx) = mpsc::sync_channel::<(std::path::PathBuf, String, Vec<String>, Option<String>)>(32);
-    let worker = thread::spawn(move || {
-        for (worker_dir, id, command, tenant) in rx {
-            if let Err(error) = run_job(&worker_dir, &id, command, tenant.as_deref()) {
-                let _ = save_job(
-                    &worker_dir,
-                    &id,
-                    &json!({"id": id, "state": "done", "exit_code": 1, "stderr": error}),
-                );
+    let queue = Arc::new(crate::jobs::Queue::default());
+    let workers: Vec<_> = (0..4).map(|_| {
+        let (queue, stop) = (queue.clone(), stopping.clone());
+        thread::spawn(move || {
+            while let Some(job) = queue.next(&stop) {
+                let timeout = if job.args.first().is_some_and(|a| matches!(a.as_str(), "preflight" | "list" | "info" | "url" | "status" | "settings")) { job_timeout.min(60) } else { job_timeout };
+                if let Err(error) = run_job(&job.dir, &job.id, job.args, job.tenant.as_deref(), Duration::from_secs(timeout), &stop) {
+                    let _ = save_job(&job.dir, &job.id, &json!({"id":job.id,"state":"done","exit_code":1,"stderr":error}));
+                }
+                queue.finish(&job.dir);
             }
-        }
-    });
+        })
+    }).collect();
     crate::up()?;
     hosted_lifecycle("_hosted_up");
     drop(startup_lock);
@@ -456,11 +480,11 @@ fn serve(args: &Args) -> R<()> {
                 Ok(id) => id,
                 Err(e) => { reply(request, 500, json!({"error": e})); continue; }
             };
-            match tx.try_send((request_jobs.clone(), id.clone(), command, tenant)) {
+            match queue.submit(crate::jobs::Job {dir:request_jobs.clone(), id:id.clone(), args:command, tenant}) {
                 Ok(()) => reply(request, 202, json!({"id": id, "state": "queued"})),
-                Err(_) => {
+                Err(error) => {
                     let _ = fs::remove_file(request_jobs.join(format!("{id}.json")));
-                    reply(request, 503, json!({"error": "job queue full"}));
+                    reply(request, 503, json!({"error": error}));
                 }
             }
         } else {
@@ -468,10 +492,10 @@ fn serve(args: &Args) -> R<()> {
         }
     }
     let _ = monitor.join();
-    drop(tx);
-    worker
-        .join()
-        .map_err(|_| "command worker panicked during shutdown")?;
+    for job in queue.drain() {
+        let _ = save_job(&job.dir, &job.id, &json!({"id":job.id,"state":"done","exit_code":124,"stderr":"Server stopped before this job started. The command was not executed."}));
+    }
+    for worker in workers { worker.join().map_err(|_| "command worker panicked during shutdown")?; }
     hosted_lifecycle("_hosted_down");
     let _shutdown_lock = worker_lock(false)?;
     crate::down()

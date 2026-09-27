@@ -81,6 +81,16 @@ results are stored in the server's private `.jobs` directory and may contain dat
 URLs. Remove old completed job files when they are no longer needed. After a server restart,
 interrupted jobs require inspection before retrying; commands are never blindly replayed.
 
+The server runs up to four workspace jobs concurrently, preserving submission order
+within each workspace. A workspace can have at most eight running or queued jobs;
+the shared pending queue holds 32. Full queues return HTTP 503 so callers can retry
+after existing work finishes. Jobs have a one-hour execution deadline; read-only
+commands and preflight checks are capped at 60 seconds. Set
+`SNAPSHOTDB_JOB_TIMEOUT_SECONDS` (1–86400) to change the overall deadline.
+Timeouts and shutdown interrupt the worker and its client subprocesses, returning
+exit code 124. Changes already made are not rolled back: inspect the source or
+branch before retrying. Queued work is marked unexecuted on orderly shutdown.
+
 For an SSH-only setup, leave the API and database proxies bound to loopback, and forward
 the API with `ssh -N -L 7432:127.0.0.1:7432 user@server`. Set the client API URL to
 `http://127.0.0.1:7432`. Forward each returned database port separately before connecting.

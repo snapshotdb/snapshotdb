@@ -93,6 +93,56 @@ fn cli(base: &std::path::Path) -> Command {
 }
 
 #[test]
+fn slow_tenant_does_not_block_others_and_deadlines_reap_clients() {
+    use std::os::unix::fs::PermissionsExt;
+    let _fixture = SERVER_FIXTURE.lock().unwrap();
+    const GATEWAY: &str = "local-scheduler-test-gateway-32-characters";
+    let base = std::env::temp_dir().join(format!("snapshotdb-scheduler-{}", std::process::id()));
+    let bin=base.join("bin");fs::create_dir_all(&bin).unwrap();
+    let fake=bin.join("psql");
+    fs::write(&fake,"#!/bin/sh\necho $$ > \"$SNAPSHOTDB_TEST_CLIENT_PID\"\nexec sleep 30\n").unwrap();
+    fs::set_permissions(&fake,fs::Permissions::from_mode(0o755)).unwrap();
+    let listener=TcpListener::bind("127.0.0.1:0").unwrap();let addr=listener.local_addr().unwrap();drop(listener);
+    let server=Command::new(env!("CARGO_BIN_EXE_snapshotdb"))
+        .env("SNAPSHOTDB_HOME",base.join("server")).env("SNAPSHOTDB_TOKEN",TOKEN)
+        .env("SNAPSHOTDB_HOSTED_TOKEN",GATEWAY).env("SNAPSHOTDB_JOB_TIMEOUT_SECONDS","3")
+        .env("SNAPSHOTDB_TEST_CLIENT_PID",base.join("client.pid"))
+        .env("PATH",format!("{}:{}",bin.display(),std::env::var("PATH").unwrap_or_default()))
+        .args(["serve","--bind",&addr.to_string(),"--public-host","127.0.0.1"])
+        .stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let mut f=Fixture{server,base,url:format!("http://{addr}")};
+    for _ in 0..100 { if std::net::TcpStream::connect(addr).is_ok(){break;} assert!(f.server.try_wait().unwrap().is_none());thread::sleep(Duration::from_millis(20)); }
+    let submit=|tenant:&str,args:&[&str]|->String {
+        let body=ureq::post(format!("{}/v1/commands",f.url)).header("Authorization",format!("Bearer {GATEWAY}"))
+            .header("X-SnapshotDB-Tenant",tenant).send(serde_json::to_string(args).unwrap()).unwrap().body_mut().read_to_string().unwrap();
+        serde_json::from_str::<serde_json::Value>(&body).unwrap()["id"].as_str().unwrap().to_owned()
+    };
+    let job=|tenant:&str,id:&str|->serde_json::Value {
+        let body=ureq::get(format!("{}/v1/jobs/{id}",f.url)).header("Authorization",format!("Bearer {GATEWAY}"))
+            .header("X-SnapshotDB-Tenant",tenant).call().unwrap().body_mut().read_to_string().unwrap();
+        serde_json::from_str(&body).unwrap()
+    };
+    let slow=submit("github-1",&["preflight","postgres","postgresql://audit@1.1.1.1/audit"]);
+    for _ in 0..100 { if f.base.join("client.pid").exists(){break;} thread::sleep(Duration::from_millis(10)); }
+    assert!(f.base.join("client.pid").exists());
+    let own=submit("github-1",&["list"]);
+    let other=submit("github-2",&["list"]);
+    for _ in 0..100 { if job("github-2",&other)["state"]=="done"{break;} thread::sleep(Duration::from_millis(10)); }
+    assert_eq!(job("github-2",&other)["exit_code"],0,"another workspace must complete while the client sleeps");
+    assert_eq!(job("github-1",&own)["state"],"queued","same-workspace order must be preserved");
+    for _ in 0..300 { if job("github-1",&slow)["state"]=="done"{break;} thread::sleep(Duration::from_millis(20)); }
+    let ended=job("github-1",&slow);
+    assert_eq!(ended["exit_code"],124);assert!(ended["stderr"].as_str().unwrap().contains("deadline exceeded"));
+    let pid=fs::read_to_string(f.base.join("client.pid")).unwrap().trim().parse::<i32>().unwrap();
+    // Reaped by its parent or init; a zombie can remain briefly, but it must not run.
+    let state=Command::new("ps").args(["-o","stat=","-p",&pid.to_string()]).output().unwrap();
+    let state=String::from_utf8_lossy(&state.stdout);
+    assert!(state.trim().is_empty() || state.trim().starts_with('Z'),"client survived deadline: {state}");
+    for _ in 0..100 { if job("github-1",&own)["state"]=="done"{break;} thread::sleep(Duration::from_millis(10)); }
+    assert_eq!(job("github-1",&own)["exit_code"],0,"workspace must accept work after a timeout");
+}
+
+#[test]
 fn client_requires_server_and_never_falls_back() {
     let base = std::env::temp_dir().join(format!("snapshotdb-no-server-{}", std::process::id()));
     for args in [
