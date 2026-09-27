@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 0 1200 340" role="img" aria-labelledby="title desc">
+  <title id="title">SnapshotDB — real data, independent branches</title>
+  <desc id="desc">Open-source database branching for PostgreSQL, MySQL, MongoDB and SQLite. Self-host on your infrastructure.</desc>
+  <defs>
+    <path id="mark" d="M20 4H58Q60 4 60 6V20Q60 22 58 22H28L50 32C64 38 63 60 44 60H6Q4 60 4 58V44Q4 42 6 42H36L14 32C0 26 1 4 20 4Z"/>
+  </defs>
+  <rect width="1200" height="340" rx="12" fill="#0b0a09"/>
+  <g fill="#efe9df" font-family="Arial, Helvetica, sans-serif">
+    <use href="#mark" transform="translate(46 37) scale(.76)"/>
+    <text x="112" y="77" font-size="43" font-weight="700" letter-spacing="-1.8">snapshot<tspan fill="#a6a092">db</tspan></text>
+    <text x="50" y="164" font-size="48" font-weight="700" letter-spacing="-1.6">Real data.</text>
+    <text x="50" y="218" font-size="48" font-weight="700" letter-spacing="-1.6">Independent branches.</text>
+    <text x="52" y="279" font-size="21" fill="#b8b1a3">PostgreSQL / MySQL / MongoDB / SQLite</text>
+  </g>
+  <g transform="translate(830 55)">
+    <use href="#mark" transform="translate(70 -4) scale(3.3)" fill="none" stroke="#494236" stroke-width=".5"/>
+    <use href="#mark" transform="translate(35 16) scale(3.3)" fill="#17140f" stroke="#746957" stroke-width=".5"/>
+    <use href="#mark" transform="translate(0 36) scale(3.3)" fill="#f2603d"/>
+  </g>
+</svg>

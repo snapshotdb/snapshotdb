@@ -1,28 +1,31 @@
-# SnapshotDB
+![SnapshotDB — real data, independent branches. PostgreSQL, MySQL, MongoDB and SQLite.](docs/assets/readme-hero.svg)
 
-<img src="site/app/icon.svg" alt="SnapshotDB split logo" width="64" height="64">
+<p align="center">
+  <a href="https://snapshotdb.io"><b>Website</b></a> &nbsp; / &nbsp;
+  <a href="https://snapshotdb.io/docs"><b>Documentation</b></a> &nbsp; / &nbsp;
+  <a href="docs/server.md"><b>Deploy a server</b></a> &nbsp; / &nbsp;
+  <a href="LICENSE"><b>Apache-2.0</b></a>
+</p>
 
-**A writable database branch for every developer, agent, and test.**
+A writable database branch for every developer, agent, and test. SnapshotDB uses
+copy-on-write storage so branches share unchanged data. Self-host it on your infrastructure;
+database files and processes stay on the server.
 
-SnapshotDB creates copy-on-write branches of PostgreSQL, MySQL, MongoDB, and SQLite.
-Test migrations, run backfills, and debug queries against a separate copy of your data.
-Self-host it on your own infrastructure; database files and processes stay on the server.
-
-[Website](https://snapshotdb.io) · [Documentation](https://snapshotdb.io/docs) ·
-[Deploy a server](docs/server.md) · [Benchmarks](docs/latency-results.md) · [Apache-2.0](LICENSE)
+### See it in 27 seconds
 
 https://github.com/user-attachments/assets/00146060-9dd5-426f-9f81-8087fd3080ea
 
-## What you can do
+## One replica. Room to experiment.
 
-- Give Claude Code, Codex, OpenCode, or a CI job a branch with its own URL and credentials.
-- Keep a server-side replica in sync with PostgreSQL, MySQL, or MongoDB, then branch it.
-  SQLite starts from a server-side file or an empty database.
-- Prepare immutable snapshots and running branch pools before an agent burst.
-- Reset ordinary branches to their parent, pause idle engines, and remove branches when finished.
+![A production source replicates to your SnapshotDB server; Claude Code, Codex and OpenCode each work on a separate branch.](docs/assets/readme-branching.svg)
 
-Branch URLs grant access to copied data. Keep them private and apply masking hooks when
-needed; separate database credentials do not replace network isolation.
+| Test migrations | Give agents real data | Isolate CI jobs |
+|---|---|---|
+| Change a schema on a branch. Reset ordinary branches when you need a fresh start. | Hand Claude Code, Codex, or OpenCode a separate URL and credentials. | Create a branch per job and remove it when the run finishes. |
+
+PostgreSQL, MySQL, and MongoDB use a server-side replica. SQLite starts from a file or an
+empty database. Branch URLs grant access to copied data: keep them private, apply masking
+when needed, and enforce network isolation separately.
 
 ## Quick start: your own server
 
@@ -75,11 +78,19 @@ same snapshot name, or use a new name to capture newer source data. See
 [prepared branches](docs/prepared-branches.md) for freshness, lifecycle, and SQLite usage.
 Prepared children cannot be reset; claim a replacement before removing the old branch.
 
-In the recorded 1 TB PostgreSQL test, four concurrent prepared claims completed allocation,
-connection, read, committed write, and read-back in **64–106 ms** on the server. The
-**4.913-second preparation** was outside that timer. Fresh branches without a pool took
-**997 ms median on the server** and **1,413 ms from a laptop**. These are measurements from
-specific fixtures and hardware, not a latency guarantee. [Results and raw evidence](docs/latency-results.md).
+### Measured on a 1 TB PostgreSQL database
+
+<table>
+  <tr>
+    <td align="center" width="33%"><h3>64–106 ms</h3><b>Prepared claims</b><br>Four concurrent agents<br>Server-local range</td>
+    <td align="center" width="33%"><h3>997 ms</h3><b>Fresh branch</b><br>Without a prepared pool<br>Server-local median</td>
+    <td align="center" width="33%"><h3>1,413 ms</h3><b>Fresh branch</b><br>From a laptop<br>Remote median</td>
+  </tr>
+</table>
+
+Timers include allocation, connection, read, committed write, and read-back. Prepared
+claims exclude **4.913 seconds of preparation**. These are recorded measurements from
+specific fixtures and hardware, not a latency guarantee. [Conditions and raw evidence](docs/latency-results.md).
 
 ## Install
 
@@ -136,6 +147,9 @@ For hosted operators, start with [deployment](docs/hosting/deployment.md),
 [plan accounting](docs/hosting/pricing.md), and the [launch acceptance checklist](docs/hosting/launch-checklist.md).
 Passing repository CI does not establish production isolation, payment processing, or recovery.
 
+<details>
+<summary><b>Full command reference</b></summary>
+
 ## Commands
 
 ```
@@ -164,6 +178,8 @@ File paths, including `@file` SQL hooks, refer to the server filesystem. `sync` 
 root that replicates from a live database. Both are branched the same way. `create` and `sync`
 make the new branch current, so `snapshotdb info --print-url` needs no name.
 
+</details>
+
 ## Engines
 
 | Engine | Replica / root | Branch connection |
@@ -183,6 +199,9 @@ replica set, so transactions and change streams work on branches too.
 The current server is verified by `./e2e.sh` on Linux (Btrfs) in CI,
 including preflight, sync, schema changes, a poisoned transaction repaired, suspend and
 resume, a simulated reboot, credentials, settings, and teardown.
+
+<details>
+<summary><b>Historical engine benchmarks and scale-test notes</b></summary>
 
 ## Historical engine benchmarks
 
@@ -212,6 +231,11 @@ The [remote scale test](docs/server.md#scale-test) generates synthetic PostgreSQ
 1 TB, verifies its measured size, and checks replication, schema changes, and isolation.
 The subsequent [1 TB run](docs/tb-benchmark.md) and [prepared/fresh branch measurements](docs/latency-results.md)
 have their own recorded evidence. They do not establish the performance of a new deployment.
+
+</details>
+
+<details>
+<summary><b>Source requirements, replication repair, and branch settings</b></summary>
 
 ## What `sync` needs from production
 
@@ -286,6 +310,8 @@ Idle branches stop their engine after the server's `SNAPSHOTDB_IDLE_MINUTES` (de
 resume when a client connects; the proxy on the branch's port stays. Synced roots never
 suspend. Starting the server after a reboot restores proxies and synced roots.
 
+</details>
+
 ## Agents and CI
 
 Give an agent a branch, not production. The [agent skill](skills/snapshotdb/SKILL.md)
@@ -305,6 +331,9 @@ export DATABASE_URL
 snapshotdb rm "pr-$PR"
 ```
 
+<details>
+<summary><b>Storage layout and copy-on-write internals</b></summary>
+
 ## How it works
 
 ```
@@ -323,6 +352,8 @@ and restarts it, because per-file clones are only a consistent snapshot while no
 writing. Engines bind `127.0.0.1` on the server. The database proxies bind the server's
 `--db-bind` address, and returned URLs use `--public-host`. The control API uses a bearer
 token; expose it through HTTPS or an SSH tunnel. See [deployment](docs/server.md).
+
+</details>
 
 ## Build and test
 
