@@ -10,8 +10,10 @@ description: Do all database work on a disposable snapshotdb branch cloned from 
 the CLI fails. Only deployment operators run `snapshotdb serve`.
 
 It gives you an isolated, writable copy of the production replica on the server.
-Writes on a branch never reach production or other branches. A branch URL carries no
-production credentials, so it is safe to use freely.
+Branch writes do not replicate back to production or other branches. A branch URL carries
+separate credentials but grants access to copied data: treat the whole URL as a secret.
+The operator must supply private/encrypted routing and network isolation; the skill does
+not establish those controls.
 
 ## Rules
 
@@ -26,7 +28,7 @@ production credentials, so it is safe to use freely.
 ```sh
 snapshotdb list                                   # what exists; * marks the current branch; passwords redacted
 snapshotdb create <task-name> --from prod --print-url   # new branch, becomes current; prints only the URL
-snapshotdb info --print-url                       # full URL of the current branch (use this on every step)
+snapshotdb info <task-name> --print-url           # full URL of this branch (use this on every step)
 snapshotdb reset <task-name>                      # throw away changes, re-clone from prod
 snapshotdb rm <task-name>                         # delete; prints nothing on success
 ```
@@ -43,7 +45,9 @@ of exporting it:
 
 ```sh
 snapshotdb create fix-orders-index --from prod --print-url >/dev/null || exit 1
-psql "$(snapshotdb info --print-url)" -v ON_ERROR_STOP=1 <<'SQL'
+branch_url="$(snapshotdb info fix-orders-index --print-url)" || exit 1
+[ -n "$branch_url" ] || exit 1
+psql "$branch_url" -v ON_ERROR_STOP=1 <<'SQL'
 begin;
 -- migration / backfill here; a failed step leaves the branch clean, or run `snapshotdb reset`
 commit;
@@ -51,15 +55,25 @@ SQL
 snapshotdb rm fix-orders-index
 ```
 
-Do not write the URL to a file; ask `snapshotdb info --print-url` again instead.
+Do not write the URL to a file; ask `snapshotdb info <task-name> --print-url` again instead.
+Use an explicit branch name when multiple agents share a workspace, so another agent's
+`switch` or `create` cannot change which database you connect to.
 
 Branch names: 1-40 letters, digits, `-`, `_`, or `.`, not starting with `.` or `_`.
 
 ## What a branch contains
 
-Everything the replica had at the moment you branched: schema, data, functions, triggers,
-grants. Sequences are moved past the copied rows so inserts work. Changes on production after
-you branched do not appear; `reset` gives you a fresh copy.
+The branch contains the replica's application data and supported schema at branch time.
+Credentials and ownership are adjusted for branch access; exact source-role/RLS fidelity
+is not guaranteed. PostgreSQL sequences are advanced to avoid collisions with copied rows.
+Later source changes do not appear automatically; `reset` re-clones the parent.
+
+An operator can prepare an immutable snapshot with `snapshotdb prepare release-1 --from
+prod --count 3`, then agents claim it with `snapshotdb create <task-name> --from release-1`.
+Preparation happens before allocation and consumes running capacity. Prepared children
+cannot be reset: claim a replacement before removing the old branch. A new snapshot is
+required for newer source data. Stop on pool exhaustion; do not fall back to the production
+connection string.
 
 Idle branches suspend after 5 minutes and resume on the next connection, so a first query
 after a pause takes a moment longer.

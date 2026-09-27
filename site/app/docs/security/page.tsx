@@ -8,7 +8,7 @@ export default function Page() {
       <p className="lead">Branches have their own credentials. BYOC stores replicas on infrastructure you operate; SnapshotDB Cloud copies source data to hosted infrastructure.</p>
 
       <h2>Minimal production footprint</h2>
-      <p>snapshotdb reads from production over the engine’s replication and never writes to your application tables. On Postgres it adds only its own publication, slot, metadata schema, and DDL event trigger, all named <code>snapshotdb_&lt;name&gt;</code>, and <code>rm</code> removes them. On MySQL and MongoDB it creates nothing on the source.</p>
+      <p>snapshotdb reads from production over the engine’s replication and never writes to your application tables. On Postgres it adds its own publication, slot, metadata schema, and DDL event trigger, named <code>snapshotdb_&lt;name&gt;</code>. Removing a synced root attempts to release them; if source cleanup fails, follow the printed manual-cleanup instructions to avoid retaining WAL. On MySQL and MongoDB it creates nothing on the source.</p>
 
       <h2>Per-branch credentials</h2>
       <p>Roots that snapshotdb creates get a generated admin password, and every clone rotates to its own password on first start. Postgres accepts the password over TCP and trusts only its Unix socket (which snapshotdb itself uses); MongoDB runs with a keyFile and a generated <code>root</code> user. Treat branch URLs as secrets: they grant access to the copied data. Separate credentials do not replace network isolation or data redaction.</p>
@@ -21,7 +21,7 @@ export default function Page() {
       <p>The native database proxies do not add TLS; SQLite query URLs use HTTP. An HTTPS control API does not encrypt those database connections. Keep them on a private network or behind an authenticated encrypted tunnel or compatible TLS gateway before transmitting credentials or source data.</p>
 
       <h2>Anonymization</h2>
-      <p>Use a per-root <code>branch_sql</code> hook to redact or synthesize sensitive columns on every new branch. It runs once per branch, right after creation, and never touches the source. See <a href="/docs/cli">Settings</a>.</p>
+      <p>Use a per-root <code>branch_sql</code> hook to redact or synthesize sensitive columns before handing a branch to an agent. Ordinary branches run initialization after cloning. Prepared snapshots run it during preparation, and prepared children inherit that data without rerunning the hook. It never touches the source. See <a href="/docs/cli">Settings</a>.</p>
 
       <h2>WAL retention</h2>
       <p>A stopped Postgres synced root keeps its replication slot, which retains WAL on the source until the root is started again or removed. <code>status</code> shows how much WAL the slot is holding. Preflight warns when <code>max_slot_wal_keep_size</code> is unbounded — set a bound so a forgotten root cannot fill the source’s disk.</p>

@@ -1,5 +1,8 @@
 # Hosted console and Dodo Payments rollout
 
+Use the [launch acceptance checklist](launch-checklist.md) before enabling public paid
+signup. The historical deployment record below is not a current health or readiness check.
+
 The console defaults to a same-origin authenticated gateway at /api/hosted/*.
 The gateway forwards to https://api.snapshotdb.io using a server-only secret.
 A GitHub numeric user id selects .tenants/github-ID under SNAPSHOTDB_HOME.
@@ -62,8 +65,9 @@ is wrong. No live payment credentials are included in this repository.
    Confirm a second Free source is rejected, then test source deletion at quota.
 4. Exercise five-minute idle suspension, reconnect, storage/transfer limits,
    two-hour exhaustion (test ledger), graceful restart, and Linux cgroup limits.
-5. Run a Razorpay test payment, replay its webhook, cancel renewal, and test a
-   renewal. Confirm usage resets only for a new paid period, not a replay.
+5. In Dodo **test mode**, complete checkout, replay and reorder signed webhooks, and test
+   renewal, failed payment, portal recovery, cancellation, and expiry. Confirm usage resets
+   only for a new paid period and that another workspace's entitlement stays unchanged.
 6. Switch to BYOC; only then should server address/token inputs be visible.
 
 ## Production boundaries
@@ -79,6 +83,10 @@ sampled rather than a kernel disk limit: use per-workspace filesystem quotas bef
 untrusted production workloads. No existing production data is migrated by this patch.
 
 ## Deployment record — 2026-09-21
+
+Historical record of the earlier Razorpay rollout. Those payment routes were replaced
+by Dodo; the host configuration and capacity described here must be rechecked on the
+current server. Use the Dodo configuration and validation steps above for new deployments.
 
 Deployed the hosted backend to the existing Oracle anybranch.service, with
 cgroup-v2 delegation and an HTTPS-only API listener behind Caddy. Previous binary

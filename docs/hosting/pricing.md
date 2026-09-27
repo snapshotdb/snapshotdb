@@ -9,7 +9,12 @@ All active database runtimes add together. SQLite counts while its HTTP endpoint
 is running. Native idle engines stop after five minutes; source replication does
 not idle. Suspended data still consumes storage. No automatic overage charges.
 
-## Assumptions and arithmetic
+## Historical cost model — 21 September 2026
+
+The plan limits above are implemented in `src/hosted.rs`. The figures below are dated
+planning assumptions, not current provider quotes or measured production costs. Checkout
+now uses Dodo; reprice collection, tax, FX, and infrastructure costs from the actual
+merchant configuration before using this model for a launch decision.
 
 Use Linux on-demand Graviton M7g, US East (N. Virginia), without credits, Spot,
 reserved commitments, or assumed copy-on-write storage savings. AWS's published
@@ -28,7 +33,7 @@ customer on a dedicated always-on m7g.xlarge instead costs $119.14/month compute
 | Storage | 4.29 | 50 GiB = 53.69 decimal GB * $0.08, conservatively rounded |
 | Database egress | 6.00 | Budget allowance, region/network dependent; excludes free-tier credit |
 | Backups, API, logs, IP, load-balancer allocation | 8.00 | Planning reserve, not an AWS quote |
-| Razorpay recurring international collection | 7.50 | 5% reserve; verify actual merchant contract and FX |
+| Payment collection | 7.50 | Historical 5% planning reserve; not a Dodo fee quote |
 | Total modeled direct cost | 46.19 | Excludes sales taxes on revenue |
 | Contribution before salaries, acquisition and general overhead | 103.81 | 69.2% of $150 |
 
@@ -37,10 +42,10 @@ example). Provisioned EBS bills even when databases are idle. Extra IOPS and
 throughput, snapshots, cross-AZ traffic, NAT and unused disks can raise costs.
 AWS egress: https://aws.amazon.com/ec2/pricing/on-demand/ . The 100 GB free
 allowance is shared across the AWS account; do not allocate it to every customer.
-Razorpay: https://razorpay.com/pricing/ and
-https://razorpay.com/blog/razorpay-payment-gateway-charges/ . International fees,
-subscription fees, GST on fees and FX depend on account; $7.50 is a reserve,
-not a promised all-inclusive quote. USD subscriptions must be enabled for the account.
+The original collection reserve predated the switch to Dodo. International fees,
+subscription fees, taxes, refunds and FX depend on the merchant agreement; $7.50
+is only a retained modeling assumption. Configure and verify the actual USD recurring
+product using [deployment.md](deployment.md).
 
 ## Sensitivity
 

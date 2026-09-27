@@ -1,9 +1,33 @@
-# snapshotdb
+# SnapshotDB
 
-Branch your production database on your own server. The CLI sends requests; database files
-and database processes stay on the deployed server.
+<img src="site/app/icon.svg" alt="SnapshotDB split logo" width="64" height="64">
+
+**A writable database branch for every developer, agent, and test.**
+
+SnapshotDB creates copy-on-write branches of PostgreSQL, MySQL, MongoDB, and SQLite.
+Test migrations, run backfills, and debug queries against a separate copy of your data.
+Self-host it on your own infrastructure; database files and processes stay on the server.
+
+[Website](https://snapshotdb.io) · [Documentation](https://snapshotdb.io/docs) ·
+[Deploy a server](docs/server.md) · [Benchmarks](docs/latency-results.md) · [Apache-2.0](LICENSE)
 
 https://github.com/user-attachments/assets/00146060-9dd5-426f-9f81-8087fd3080ea
+
+## What you can do
+
+- Give Claude Code, Codex, OpenCode, or a CI job a branch with its own URL and credentials.
+- Keep a server-side replica in sync with PostgreSQL, MySQL, or MongoDB, then branch it.
+  SQLite starts from a server-side file or an empty database.
+- Prepare immutable snapshots and running branch pools before an agent burst.
+- Reset ordinary branches to their parent, pause idle engines, and remove branches when finished.
+
+Branch URLs grant access to copied data. Keep them private and apply masking hooks when
+needed; separate database credentials do not replace network isolation.
+
+## Quick start: your own server
+
+Install the CLI as described below and [deploy a server](docs/server.md) first. The
+server needs storage for the full initial replica, its WAL/logs, and subsequent writes.
 
 ```sh
 export SNAPSHOTDB_SERVER=https://snapshotdb.example.com
@@ -17,6 +41,9 @@ snapshotdb clone prod 'postgresql://user:pass@db.example.com:5432/app'
 # postgresql://you:<branch-password>@branches.internal:57340/app
 # prod replicates 41 tables from the source; initial copy continues in the background
 
+snapshotdb status prod
+# Wait until the initial copy is complete and replication is healthy before branching.
+
 snapshotdb create feature-x --from prod --print-url
 # postgresql://snapshotdb_agent:<branch-password>@branches.internal:57375/app
 ```
@@ -28,23 +55,61 @@ replica requires a full transfer and enough server disk for the data. Subsequent
 share filesystem blocks until pages change; metadata, startup, and writes still cost space and time. Idle
 branches suspend after five minutes and resume on the next connection; the URL never changes.
 
-This is the open-source shape of what hosted products such as Ardent sell: preflight, a
-replica of production, instant branches off it, and repair when replication breaks. The
-differences: you deploy the server yourself; it uses Postgres logical replication, MySQL GTID
-replication, and MongoDB change streams instead of a proprietary pipeline, and is not limited
-to Postgres.
+Connect your application or database client to the returned branch URL over your private
+network or encrypted tunnel. When finished, remove it with `snapshotdb rm feature-x`.
+
+## Prepared branches for agents
+
+After replication is ready, prepare capacity before handing work to agents:
+
+```sh
+snapshotdb prepare release-1 --from prod --count 3
+snapshotdb create claude-code --from release-1 --print-url
+snapshotdb create codex --from release-1 --print-url
+snapshotdb create opencode --from release-1 --print-url
+```
+
+Each claim receives a separate, already-running database. Preparation takes time and
+consumes resources; an exhausted pool returns an error. Refill with `prepare` using the
+same snapshot name, or use a new name to capture newer source data. See
+[prepared branches](docs/prepared-branches.md) for freshness, lifecycle, and SQLite usage.
+Prepared children cannot be reset; claim a replacement before removing the old branch.
+
+In the recorded 1 TB PostgreSQL test, four concurrent prepared claims completed allocation,
+connection, read, committed write, and read-back in **64–106 ms** on the server. The
+**4.913-second preparation** was outside that timer. Fresh branches without a pool took
+**997 ms median on the server** and **1,413 ms from a laptop**. These are measurements from
+specific fixtures and hardware, not a latency guarantee. [Results and raw evidence](docs/latency-results.md).
 
 ## Install
 
+Build from this checkout with Rust/Cargo:
+
 ```sh
-cargo install --path . --locked      # build the client/server version from this checkout
+git clone https://github.com/snapshotdb/snapshotdb.git
+cd snapshotdb
+cargo install --path . --locked
+snapshotdb --version
 ```
+
+The website also provides a checksum-verified installer for macOS (arm64 and x86_64)
+and Linux (x86_64):
+
+```sh
+curl -fsSL https://snapshotdb.io/install.sh | sh
+snapshotdb --version
+```
+
+Build from source on other supported architectures. A website deployment publishes the
+tracked bundle in [`site/public/dl`](site/public/dl); its [`BUILD.json`](site/public/dl/BUILD.json)
+and checksums identify the source revision. The served bundle can lag behind this checkout.
+Operators should follow the [release verification procedure](docs/hosting/release-cli.md).
 
 Deploy the server before using database commands: see [server deployment](docs/server.md).
 For a customer-owned AWS deployment, see the [BYOC appliance and deployment template](deploy/byoc/README.md).
 The [strict comparison protocol](docs/strict-comparison.md) separates measured branch
 latency from unverified infrastructure and product parity.
-The client/server change is unreleased; older v0.3.0 release binaries still use local storage.
+Use a matching v0.4.0 client/server build; older v0.3.0 release binaries use local storage.
 Without `SNAPSHOTDB_SERVER`, the client fails; it never falls back to a local database copy.
 The client only needs the SnapshotDB binary. Engine binaries and copy-on-write storage belong
 on the server. PostgreSQL, MySQL and MongoDB agent branches require Linux with bubblewrap;
@@ -56,6 +121,21 @@ returns a job ID immediately, and `snapshotdb job <id>` reconnects to it. A lost
 connection does not cancel the server operation. PostgreSQL's initial table copy continues
 after the clone job returns; use `status` to monitor it.
 
+## Self-hosted and hosted console
+
+| Mode | Where databases live | Access |
+|---|---|---|
+| Self-hosted / BYOC | Your server or cloud account | CLI with server URL and admin token; optional console in BYOC mode |
+| SnapshotDB Cloud | Hosted infrastructure | GitHub sign-in through the console, with workspace quotas and Dodo billing |
+
+GitHub CLI sign-in does **not** connect database commands to a Cloud workspace. The CLI
+currently requires your own server URL and token. BYOC users operate their own backups,
+network controls, and capacity; Cloud source data is copied to the hosted server.
+
+For hosted operators, start with [deployment](docs/hosting/deployment.md),
+[plan accounting](docs/hosting/pricing.md), and the [launch acceptance checklist](docs/hosting/launch-checklist.md).
+Passing repository CI does not establish production isolation, payment processing, or recovery.
+
 ## Commands
 
 ```
@@ -65,6 +145,7 @@ snapshotdb preflight <postgres|mysql|mongodb> <url> [--schemas a,b] [--format js
 snapshotdb import <postgres|mysql|sqlite|mongodb> <name> <datadir|file|--new>
 snapshotdb sync   <postgres|mysql|mongodb> <name> <url> [--schemas a,b] [--fix-replica-identity]   root kept in sync with production
 snapshotdb create <name> --from <parent> [--print-url] [--format json]
+snapshotdb prepare <snapshot> --from <parent> --count <1-32>   freeze a snapshot and fill its ready branch pool
 snapshotdb info   [name] [--print-url] [--format json]      details of a branch (default: current)
 snapshotdb url    [name]
 snapshotdb switch <name>                                    make a branch current
@@ -85,12 +166,15 @@ make the new branch current, so `snapshotdb info --print-url` needs no name.
 
 ## Engines
 
-| Engine   | roots                     | sync from production          | schema changes       | branch time (M5 Pro, APFS) |
-|----------|---------------------------|-------------------------------|----------------------|----------------------------|
-| postgres | `--new`, stopped data dir | logical replication           | event trigger replay | 0.2 s stopped parent, 0.5 s running |
-| mysql    | `--new`, stopped datadir  | GTID replication              | native (binlog)      | 0.4 s, 1.7 s |
-| mongodb  | `--new`, stopped dbpath   | `mongodump` + change streams  | n/a                  | 0.3 s, 0.9 s |
-| sqlite   | `--new`, a `.sqlite` file | not applicable                | n/a                  | SQL-over-HTTP endpoint |
+| Engine | Replica / root | Branch connection |
+|---|---|---|
+| PostgreSQL | Logical replication; tracked DDL with documented limits | PostgreSQL protocol |
+| MySQL | GTID replication, including native DDL | MySQL protocol |
+| MongoDB | `mongodump` plus change streams | MongoDB protocol |
+| SQLite | Server-side `.sqlite` file or `--new`; no production replication | Authenticated SQL-over-HTTP |
+
+All four support prepared pools. Agent branches require managed roots; importing an
+unmanaged native database directory does not automatically make it safe to hand to an agent.
 
 Binaries are found on `PATH`: `pg_ctl initdb psql pg_dump pg_dumpall`, `mysqld mysql mysqldump`,
 `mongod mongosh` plus `mongodump mongorestore` for sync. Every mongod runs as a single-node
@@ -100,7 +184,7 @@ The current server is verified by `./e2e.sh` on Linux (Btrfs) in CI,
 including preflight, sync, schema changes, a poisoned transaction repaired, suspend and
 resume, a simulated reboot, credentials, settings, and teardown.
 
-## Verified at scale
+## Historical engine benchmarks
 
 Historical engine measurements from v0.3.0 on an M5 Pro (APFS), before the client/server
 change, with datasets generated by pgbench, `INSERT ... SELECT` doubling, and `insertMany`
@@ -126,7 +210,8 @@ took longer than that. Both sides of the link now allow 30 minutes.
 
 The [remote scale test](docs/server.md#scale-test) generates synthetic PostgreSQL data up to
 1 TB, verifies its measured size, and checks replication, schema changes, and isolation.
-A 1 TB pass must come from an actual completed run; the generator alone is not verification.
+The subsequent [1 TB run](docs/tb-benchmark.md) and [prepared/fresh branch measurements](docs/latency-results.md)
+have their own recorded evidence. They do not establish the performance of a new deployment.
 
 ## What `sync` needs from production
 
@@ -149,7 +234,8 @@ Without it rows still replicate, `status` says schema changes are not tracked, a
 migration `snapshotdb reconcile <name>` adds the columns and new tables the source gained.
 A row arriving with a column the replica lacks pauses the stream, and `repair` runs the
 reconcile and resumes. Tables the role cannot read are left out of the schema copy and the
-publication. `rm` removes everything it created.
+publication. `rm` attempts to remove its source-side resources; if cleanup fails, follow
+the printed manual-cleanup instructions so an orphaned slot does not retain WAL.
 
 **MySQL**: 8.0+, `gtid_mode = ON`, `enforce_gtid_consistency = ON`, row-format binary logging,
 and a user with `REPLICATION SLAVE` plus read access. User databases are dumped once with
@@ -166,8 +252,10 @@ harmless. Nothing is created on the source.
 A transaction the replica cannot apply (say, a row you inserted on the replica that production
 later inserts too) pauses the stream instead of retrying forever. `status` shows the error and
 `repair <name>` skips that one transaction and resumes. For Postgres this is
-`ALTER SUBSCRIPTION ... SKIP`; for MySQL an empty commit under the failing GTID; for MongoDB the
-tailer logs failed events to `run/tail.errors` and carries on. `status` also shows how much WAL
+`ALTER SUBSCRIPTION ... SKIP`; for MySQL an empty commit under the failing GTID. MongoDB
+records failed attempts in `run/tail.errors`, retains its checkpoint, and retries rather
+than silently advancing past the failed event. Inspect the reported error before repair.
+`status` also shows how much WAL
 the slot is retaining on the source; a stopped Postgres root keeps retaining WAL until it is
 started again or removed.
 
@@ -175,7 +263,8 @@ started again or removed.
 
 Branches cut from a replica are detached on first start: the inherited subscription or replica
 channel is removed, and Postgres sequences are moved past the replicated rows so inserts do
-not collide. A branch never contacts production.
+not collide. Branch writes do not replicate back to the source. Enforce network egress
+restrictions separately when running untrusted workloads.
 
 Per-root settings shape every new branch:
 
@@ -199,8 +288,8 @@ suspend. Starting the server after a reboot restores proxies and synced roots.
 
 ## Agents and CI
 
-Give an agent a branch, not production. The skill in `skills/snapshotdb/SKILL.md` teaches
-Claude Code or Cursor the rules; install it with:
+Give an agent a branch, not production. The [agent skill](skills/snapshotdb/SKILL.md)
+describes the workflow and connection rules. For Claude Code, install it with:
 
 ```sh
 mkdir -p .claude/skills/snapshotdb && curl -fsSL https://raw.githubusercontent.com/snapshotdb/snapshotdb/main/skills/snapshotdb/SKILL.md -o .claude/skills/snapshotdb/SKILL.md
@@ -209,8 +298,9 @@ mkdir -p .claude/skills/snapshotdb && curl -fsSL https://raw.githubusercontent.c
 In CI, a fresh database per job:
 
 ```sh
-DATABASE_URL="$(snapshotdb create "pr-$PR" --from prod --print-url)"
+DATABASE_URL="$(snapshotdb create "pr-$PR" --from prod --print-url)" || exit 1
 [ -n "$DATABASE_URL" ] || exit 1
+export DATABASE_URL
 # ... migrate and test ...
 snapshotdb rm "pr-$PR"
 ```
@@ -255,15 +345,18 @@ commands through its API.
   TABLE AS` require explicit reconciliation; recorded errors block branching. This is
   not a complete PostgreSQL grammar or full source-role/RLS fidelity guarantee.
   `CREATE INDEX CONCURRENTLY` becomes a plain index on the replica.
-- One deployed server and one administrative API token; no per-user API authorization,
-  compute quotas, or managed failover. Branch engine mount namespaces hide sibling data,
-  sockets and control-server metadata. They share host networking and compute; this is
-  not a VM boundary or a multi-tenant public service.
+- The BYOC token is administrative for the whole deployment. Hosted workspaces add
+  gateway-derived identity, plan accounting, and resource limits, but the filesystem
+  sandbox shares host networking. Neither mode provides managed failover or a VM boundary.
+  Shared hosting requires connection-time egress isolation, encrypted database transport,
+  hard disk limits, and tested recovery; see [launch acceptance](docs/hosting/launch-checklist.md).
 - SQLite returns a private SQL-over-HTTP URL. It uses the request format in
   [prepared agent branches](docs/prepared-branches.md); native SQLite file drivers cannot
   open that URL. PostgreSQL, MySQL, and MongoDB use their native network protocols.
-- Jobs serialize engine commands. Queued/running jobs are marked interrupted after a server
-  restart and are not automatically retried. Inspect branch state before resubmitting.
+- Jobs run in order within a workspace, with up to four workspaces executing concurrently.
+  Admission limits and deadlines bound work; a timeout does not undo changes already made.
+  Queued/running jobs are marked interrupted after a server restart and are not automatically
+  retried. Inspect branch state before resubmitting. See [job limits](docs/server.md#client-use).
 - Managed roots expose an administrative URL for the deployment operator. Child URLs use
   `snapshotdb_agent`: PostgreSQL object ownership without superuser/server-file roles,
   MySQL privileges on application databases, and MongoDB read/write and database-admin
@@ -279,4 +372,13 @@ See [security fixes, upgrade instructions and measured latency](docs/security-ha
 For synced PostgreSQL roots, new branches also wait for a replicated commit marker;
 see [freshness guarantees and timeout configuration](docs/postgres-freshness.md).
 
-Apache-2.0.
+## Contributing and support
+
+Open a [bug report or feature request](https://github.com/snapshotdb/snapshotdb/issues)
+with the build revision, engine version, and a minimal reproduction using synthetic data.
+Never post tokens, connection strings, billing details, or database contents in public issues.
+Security reports should use GitHub private vulnerability reporting when enabled; otherwise
+contact a maintainer privately before sharing details.
+
+The [website development guide](site/README.md) covers the console and documentation app.
+See the [changelog](CHANGELOG.md) for changes and [Apache-2.0 license](LICENSE) for use terms.

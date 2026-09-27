@@ -78,7 +78,8 @@ stops the replica to get consistent files; it does not stop the production sourc
 Long-running operations can be submitted with `--detach`, which prints a job ID. Run
 `snapshotdb job <id>` to wait later. Jobs continue if the client disconnects. Completed
 results are stored in the server's private `.jobs` directory and may contain database
-URLs. Remove old completed job files when they are no longer needed. After a server restart,
+URLs. Finished job files older than 24 hours are pruned when a new job starts; running jobs
+are retained. This is not a fixed 24-hour deletion guarantee for all logs. After a server restart,
 interrupted jobs require inspection before retrying; commands are never blindly replayed.
 
 The server runs up to four workspace jobs concurrently, preserving submission order
@@ -159,7 +160,8 @@ The runner prints its remote `scale-*/report.json` path. Successful runs delete 
 databases but retain the report; `--keep` retains the databases too. Failures attempt
 cleanup and record incomplete teardown. If SSH or the host dies abruptly, inspect the
 printed run directory and restart a server against that directory to clean up retained
-databases. No 1 TB pass has been recorded until this command completes on suitable hardware.
+databases. The [recorded 1 TB run](tb-benchmark.md) and [latency results](latency-results.md)
+describe one completed benchmark. A new deployment needs its own completed validation run.
 
 To resume an interrupted **source-generation** phase, stop the old server/processes,
 then use the same target and run directory with `--resume` and `--keep`:

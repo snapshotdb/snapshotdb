@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SnapshotDB website and console
 
-## Getting Started
+The Next.js app serves the landing page, product docs, GitHub-authenticated console,
+hosted API gateway, and Dodo checkout/webhooks. Database files and engines live on
+the separate SnapshotDB server; deploying this app does not deploy that server.
 
-First, run the development server:
+## Local development
 
-```bash
+Use Node.js 24 (matching CI). From this directory:
+
+```sh
+npm ci
+cp .env.local.example .env.local
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open <http://localhost:3000>. Public pages work without hosted credentials. Console
+sign-in requires a GitHub OAuth app and a random `AUTH_SECRET`; use the callback
+`http://localhost:3000/api/auth/github/callback` for a separate development OAuth app.
+There is no unauthenticated demo-console fallback.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+For a working hosted console, configure `SNAPSHOTDB_HOSTED_API` and the server-only
+`SNAPSHOTDB_HOSTED_TOKEN` shared with an isolated development backend. Billing needs
+the Dodo **test-mode** product, API key, and webhook secret. Never use the live service
+or production cards as a development fixture. See [hosted configuration](../docs/hosting/deployment.md).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Checks
 
-## Learn More
+```sh
+npm run lint
+npm test
+npm run build
+```
 
-To learn more about Next.js, take a look at the following resources:
+`npm run start` serves the production build. CI runs these checks plus the repository's
+Linux database tests. See [AGENTS.md](AGENTS.md) for the installed Next.js documentation
+to consult before changing framework behavior.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Where to edit
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Area | Location |
+|---|---|
+| Landing page and motion | `app/page.tsx`, `app/Boot.tsx`, visual components |
+| Split logo and app icon | `app/Logo.tsx`, `app/icon.svg` |
+| Documentation | `app/docs/` |
+| Console, session and billing helpers | `app/console/` |
+| Authentication, hosted gateway and payment routes | `app/api/` |
+| CLI installer and generated download bundle | `public/install.sh`, `public/dl/` |
 
-## Deploy on Vercel
+## Deployment
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Deployment is manual. Configure GitHub's production callback for the deployed origin,
+use a long random session secret, and keep every API/payment credential server-side
+(never `NEXT_PUBLIC_*`). The hosted token must differ from the BYOC administrative token.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Deploy compatible backend changes before this app. Building the website does not rebuild
+the CLI downloads: use [the CLI packaging workflow](../docs/hosting/release-cli.md) and
+verify the served `BUILD.json`, checksums, installed CLI revision, and backend health.
+
+Before public paid signup, complete [launch acceptance](../docs/hosting/launch-checklist.md),
+including real test-mode payments, infrastructure isolation, restore testing, and
+[customer policies](../docs/hosting/customer-policies.md). A successful build is not
+evidence that the live server or billing configuration works end to end.
