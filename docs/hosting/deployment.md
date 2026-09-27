@@ -1,4 +1,4 @@
-# Hosted console and Razorpay rollout
+# Hosted console and Dodo Payments rollout
 
 The console defaults to a same-origin authenticated gateway at /api/hosted/*.
 The gateway forwards to https://api.snapshotdb.io using a server-only secret.
@@ -12,9 +12,10 @@ On the Next.js server set AUTH_SECRET, GitHub OAuth settings, and:
 
 - SNAPSHOTDB_HOSTED_API=https://api.snapshotdb.io
 - SNAPSHOTDB_HOSTED_TOKEN: new random secret of at least 32 characters
-- RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET
-- RAZORPAY_PRO_PLAN_ID: a USD 15000-subunit, monthly, interval-1 plan
-- RAZORPAY_WEBHOOK_SECRET
+- DODO_PAYMENTS_API_KEY
+- DODO_PAYMENTS_ENVIRONMENT: test_mode or live_mode
+- DODO_PRO_PRODUCT_ID: a recurring USD 15000-cent product, every one Month, no trial or discount
+- DODO_WEBHOOK_SECRET: the Standard Webhooks signing secret, including its whsec_ prefix
 
 On the Oracle/AWS API server set the same SNAPSHOTDB_HOSTED_TOKEN, distinct from
 SNAPSHOTDB_TOKEN (the operator/BYOC admin credential). Never send either secret
@@ -34,20 +35,27 @@ on Linux before rollout; macOS tests cannot validate bubblewrap/cgroup execution
 Install mongosh, mongod, mongodump and mongorestore for MongoDB. Missing-client
 preflight errors now identify a server dependency instead of blaming credentials.
 
-Configure Razorpay's webhook URL as:
-https://www.snapshotdb.io/api/billing/webhook
-Subscribe to subscription.charged. Only a signed captured full-price USD payment
-for the configured plan grants a paid period. Browser redirects never grant Pro.
-Duplicate and older events do not reset usage. Cancellation at cycle end leaves
+Configure Dodo's webhook URL as:
+https://snapshotdb.io/api/billing/webhook
+Subscribe to subscription.active, subscription.renewed, subscription.cancelled,
+subscription.failed and subscription.expired. Only a verified full-price USD
+subscription activation or renewal for the configured product grants its billing
+period. Browser redirects never grant Pro. Duplicate and older events do not reset
+usage; millisecond ordering is retained and revocation wins exact-time ties.
+Cancellation at cycle end leaves
 the paid-through date intact; failed renewals cannot extend it. Refunds and chargeback
 revocation still require operator handling. Test-mode keys/plan/webhook must be
-kept separate from live values. Checkout fails closed if the plan currency/amount
+kept separate from live values. Checkout fails closed if the product currency/amount
 is wrong. No live payment credentials are included in this repository.
 
 ## Deployment validation
 
 1. Deploy API support before the web gateway, configure cgroup delegation and
    keep a backup of existing data. Configure both secrets without exposing values.
+   The billing-order fix accepts old seconds-only webhook payloads and historical
+   account rows. Deploy the backend first, then the gateway that sends event_time_ms
+   and checkout_nonce. Events without a checkout nonce do not release a newer checkout
+   reservation; existing links may remain reserved until their normal expiry.
 2. Use two GitHub accounts: each should start with an empty, separate inventory;
    job ids from the other workspace must return 404.
 3. Create a small source and branch with the required replication permissions.

@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       billing_currency: "USD",
       feature_flags: { allow_currency_selection: false, allow_discount_code: false },
       return_url: new URL("/console?billing=return", request.url).toString(),
-      metadata: { tenant },
+      metadata: { tenant, checkout_nonce: pending.nonce },
     } });
     const url = checkoutUrl(session.checkout_url);
     const saved = await hostedFetch(tenant, "/v1/billing/checkout", { method: "POST", body: JSON.stringify({ nonce: pending.nonce, url }) });

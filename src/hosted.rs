@@ -117,42 +117,63 @@ pub fn check(home: &Path) -> R<()> {
 
 pub fn charge_transfer(count: usize) -> R<()> {
     if !enabled() { return Ok(()); }
-    let mut c=db(&home())?;
+    record_transfer(&home(), count, false)
+}
+
+// Native proxy batches contain bytes already delivered. Persist even the last
+// over-budget batch so reconnecting cannot keep an account below its cutoff.
+fn record_transfer(home: &Path, count: usize, delivered: bool) -> R<()> {
+    let mut c=db(home)?;
     let tx=c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e|e.to_string())?;
     let (start,end,paid):(i64,i64,bool)=tx.query_row("SELECT period_start,period_end,paid FROM account WHERE id=1",[],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(|e|e.to_string())?;
     let pro=paid && now()>=start && now()<end;
     let period=if pro {start} else {0};
     let limit=if pro {50i64*1024*1024*1024} else {1024i64*1024*1024};
     let used:i64=tx.query_row("SELECT bytes FROM transfer WHERE period=?1",[period],|r|r.get(0)).unwrap_or(0);
-    if used+count as i64>limit { return Err("PLAN_LIMIT: Data transfer allowance reached.".into()); }
-    tx.execute("INSERT INTO transfer VALUES(?1,?2) ON CONFLICT(period) DO UPDATE SET bytes=bytes+excluded.bytes",params![period,count as i64]).map_err(|e|e.to_string())?;
-    tx.commit().map_err(|e|e.to_string())
+    let count = i64::try_from(count).map_err(|_| "invalid transfer size")?;
+    let exhausted = used.saturating_add(count) > limit;
+    if delivered || !exhausted {
+        tx.execute("INSERT INTO transfer VALUES(?1,?2) ON CONFLICT(period) DO UPDATE SET bytes=bytes+excluded.bytes",params![period,count]).map_err(|e|e.to_string())?;
+        tx.commit().map_err(|e|e.to_string())?;
+    }
+    if exhausted { return Err("PLAN_LIMIT: Data transfer allowance reached.".into()); }
+    Ok(())
 }
 
 pub fn copy_out(input: &mut impl std::io::Read, output: &mut impl std::io::Write) -> R<()> {
-    metered_copy(input, output, charge_transfer)
+    metered_copy(input, output, |count| record_transfer(&home(), count, true))
 }
 
 /// Charge in batches (1 MiB or 1 s), not per 64 KiB read: each charge is an IMMEDIATE
-/// SQLite transaction. A busy/failed charge is retried with the next batch instead of
-/// cutting the client's connection; only an exhausted allowance does that. A connection
-/// can overrun its allowance by at most one batch.
+/// SQLite transaction. Retry a transient accounting failure once without forwarding
+/// more bytes; persistent failures close the connection. Delivered bytes, including
+/// a final over-budget batch, remain charged. Overshoot is bounded to one batch per
+/// already-open connection and blocks subsequent connections through before_start.
 fn metered_copy(input: &mut impl std::io::Read, output: &mut impl std::io::Write, mut charge: impl FnMut(usize) -> R<()>) -> R<()> {
     let (mut buf, mut pending, mut last) = ([0u8; 65536], 0usize, Instant::now());
+    let mut flush = |count| match charge(count) {
+        Err(e) if e.contains("database is locked") || e.contains("database is busy") => charge(count),
+        result => result,
+    };
     let result = loop {
         let n = match input.read(&mut buf) { Ok(0) => break Ok(()), Ok(n) => n, Err(e) => break Err(e.to_string()) };
-        pending += n;
-        if pending >= 1 << 20 || last.elapsed() >= Duration::from_secs(1) {
-            last = Instant::now();
-            match charge(pending) {
-                Ok(()) => pending = 0,
-                Err(e) if e.starts_with("PLAN_LIMIT") => return Err(e),
-                Err(e) => eprintln!("transfer charge deferred: {e}"),
+        // Track short writes too: never bill bytes the output did not accept.
+        let mut written = 0;
+        while written < n {
+            match output.write(&buf[written..n]) {
+                Ok(0) => { flush(pending)?; return Err("transfer output closed".into()); }
+                Ok(sent) => { written += sent; pending += sent; }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => { flush(pending)?; return Err(e.to_string()); }
             }
         }
-        if let Err(e) = output.write_all(&buf[..n]) { break Err(e.to_string()); }
+        if pending >= 1 << 20 || last.elapsed() >= Duration::from_secs(1) {
+            last = Instant::now();
+            flush(pending)?;
+            pending = 0;
+        }
     };
-    if pending > 0 { if let Err(e) = charge(pending) { eprintln!("transfer charge lost ({pending} bytes): {e}"); } }
+    if pending > 0 { flush(pending)?; }
     result
 }
 pub fn before_start(b: &Branch) -> R<()> {
@@ -276,7 +297,8 @@ pub fn enforce(home: &Path) -> R<()> {
 pub fn entitlement(home: &Path, v: &Value) -> R<()> {
     usage(home)?;
     let event = v["event_id"].as_str().filter(|s| s.len() <= 128).ok_or("missing event id")?;
-    let timestamp = v["event_time"].as_i64().ok_or("missing event time")?;
+    // Keep accepting the previous gateway's seconds during a rolling deploy.
+    let timestamp = v["event_time_ms"].as_i64().or_else(|| v["event_time"].as_i64().and_then(|t| t.checked_mul(1000))).filter(|t| *t > 0).ok_or("missing event time")?;
     let customer = v["customer"].as_str().ok_or("missing customer")?;
     let subscription = v["subscription"].as_str().ok_or("missing subscription")?;
     let paid = v["paid"].as_bool().ok_or("missing paid state")?;
@@ -284,18 +306,25 @@ pub fn entitlement(home: &Path, v: &Value) -> R<()> {
     let tx = c.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
     let inserted = tx.execute("INSERT OR IGNORE INTO events(id) VALUES(?1)", [event]).map_err(|e| e.to_string())?;
     if inserted > 0 {
-        if paid {
+        // Historical rows contain seconds; new rows retain millisecond precision.
+        // An exact-time tie is conservative: revocation wins over activation.
+        let applied = if paid {
             let start = v["period_start"].as_i64().ok_or("missing period start")?;
             let end = v["period_end"].as_i64().ok_or("missing period end")?;
             if start <= 0 || end <= start || end-start > 32*86400 { return Err("invalid monthly billing period".into()); }
-            tx.execute("UPDATE account SET customer=?1,subscription=?2,period_start=?3,period_end=?4,paid=1,event_time=?5 WHERE id=1 AND event_time<=?5", params![customer,subscription,start,end,timestamp]).map_err(|e| e.to_string())?;
+            tx.execute("UPDATE account SET customer=?1,subscription=?2,period_start=?3,period_end=?4,paid=1,event_time=?5 WHERE id=1 AND (CASE WHEN event_time<100000000000 THEN event_time*1000 ELSE event_time END)<?5", params![customer,subscription,start,end,timestamp]).map_err(|e| e.to_string())?
         } else {
             // Ending access needs no billing period (a failed first payment has none), but only
             // the subscription on file can end it: a stray failure must not revoke a working plan.
-            tx.execute("UPDATE account SET customer=?1,subscription=?2,paid=0,event_time=?3 WHERE id=1 AND event_time<=?3 AND (subscription=?2 OR subscription='' OR paid=0)", params![customer,subscription,timestamp]).map_err(|e| e.to_string())?;
+            tx.execute("UPDATE account SET customer=?1,subscription=?2,paid=0,event_time=?3 WHERE id=1 AND (CASE WHEN event_time<100000000000 THEN event_time*1000 ELSE event_time END)<=?3 AND (subscription=?2 OR subscription='')", params![customer,subscription,timestamp]).map_err(|e| e.to_string())?
+        };
+        // The signed provider metadata identifies the checkout that actually ended.
+        // An unrelated or stale event must never release another checkout's lock.
+        if applied > 0 {
+            if let Some(nonce) = v["checkout_nonce"].as_str() {
+                tx.execute("DELETE FROM checkout WHERE id=1 AND nonce=?1", [nonce]).map_err(|e|e.to_string())?;
+            }
         }
-        // Any outcome (paid, failed, cancelled) means the reserved checkout link was used.
-        tx.execute("DELETE FROM checkout WHERE id=1", []).map_err(|e| e.to_string())?;
     }
     tx.commit().map_err(|e| e.to_string())
 }
@@ -359,18 +388,62 @@ mod tests {
         checkout(&h,&json!({"nonce":v["nonce"],"url":"https://test.checkout.dodopayments.com/session/cks_1"})).unwrap();
         assert_eq!(checkout(&h,&json!({})).unwrap()["url"],"https://test.checkout.dodopayments.com/session/cks_1");
         let time=now();
-        entitlement(&h,&json!({"event_id":"paid","event_time":time,"customer":"cus_1","subscription":"sub_1","period_start":time,"period_end":time+1000,"paid":true})).unwrap();
-        assert!(checkout(&h,&json!({})).unwrap()["nonce"].is_string(), "a completed payment frees the reservation");
+        entitlement(&h,&json!({"event_id":"paid","event_time":time,"customer":"cus_1","subscription":"sub_1","period_start":time,"period_end":time+1000,"paid":true,"checkout_nonce":v["nonce"]})).unwrap();
+        let next=checkout(&h,&json!({})).unwrap();
+        assert!(next["nonce"].is_string(), "a completed payment frees its reservation");
         // A declined first payment has no period; it still frees the link it used.
-        let ended=|id:&str,sub:&str,t:i64| entitlement(&h,&json!({"event_id":id,"event_time":t,"customer":"cus_1","subscription":sub,"paid":false}));
+        let ended=|id:&str,sub:&str,t:i64| entitlement(&h,&json!({"event_id":id,"event_time":t,"customer":"cus_1","subscription":sub,"paid":false,"checkout_nonce":next["nonce"]}));
         ended("stray","sub_other",time+1).unwrap();
         assert_eq!(usage(&h).unwrap()["plan"],"pro", "another subscription's failure keeps the working plan");
-        checkout(&h,&json!({})).unwrap();
-        assert!(checkout(&h,&json!({})).is_err(), "reservation is held");
+        assert!(checkout(&h,&json!({})).is_err(), "an unrelated failure must not release the reservation");
+        ended("stale","sub_1",time-1).unwrap();
+        assert!(checkout(&h,&json!({})).is_err(), "a stale event must not release the reservation");
         ended("failed","sub_1",time+2).unwrap();
         assert_eq!(usage(&h).unwrap()["plan"],"free");
-        assert!(checkout(&h,&json!({})).unwrap()["nonce"].is_string(), "any outcome frees the reservation");
+        assert!(checkout(&h,&json!({})).unwrap()["nonce"].is_string(), "a matched outcome frees its reservation");
         fs::remove_dir_all(h).unwrap();
+    }
+    #[test]
+    fn millisecond_order_and_equal_time_revocation_are_delivery_independent() {
+        for reverse in [false, true] {
+            let h=fixture();let time=now();
+            let active=json!({"event_id":"active","event_time_ms":time*1000+100,"customer":"cus_1","subscription":"sub_1","period_start":time-10,"period_end":time+1000,"paid":true});
+            let mut cancelled=active.clone();cancelled["event_id"]=json!("cancelled");cancelled["paid"]=json!(false);cancelled["event_time_ms"]=json!(time*1000+900);
+            let events=if reverse {[&cancelled,&active]}else{[&active,&cancelled]};
+            for e in events { entitlement(&h,e).unwrap(); }
+            assert_eq!(usage(&h).unwrap()["plan"],"free");
+            let mut same=active.clone();same["event_id"]=json!("equal-time-active");same["event_time_ms"]=cancelled["event_time_ms"].clone();
+            entitlement(&h,&same).unwrap();
+            assert_eq!(usage(&h).unwrap()["plan"],"free","revocation wins exact-time ties");
+            fs::remove_dir_all(h).unwrap();
+        }
+        let h=fixture();let time=now();
+        db(&h).unwrap().execute("UPDATE account SET event_time=?1",[time]).unwrap();
+        entitlement(&h,&json!({"event_id":"new","event_time_ms":time*1000+1,"customer":"cus_1","subscription":"sub_1","period_start":time,"period_end":time+1000,"paid":true})).unwrap();
+        assert_eq!(usage(&h).unwrap()["plan"],"pro","legacy seconds rows compare correctly");
+        fs::remove_dir_all(h).unwrap();
+    }
+
+    #[test]
+    fn final_short_transfer_closes_the_allowance_instead_of_disappearing() {
+        let h=fixture();let limit=1024i64*1024*1024;
+        db(&h).unwrap().execute("INSERT INTO transfer VALUES(0,?1)",[limit-1]).unwrap();
+        let mut output=Vec::new();
+        assert!(metered_copy(&mut &[7u8;100][..],&mut output,|n|record_transfer(&h,n,true)).unwrap_err().starts_with("PLAN_LIMIT"));
+        assert_eq!(output.len(),100);
+        assert_eq!(usage(&h).unwrap()["transfer_bytes"],limit+99);
+        assert!(check(&h).unwrap_err().contains("Data transfer"),"later connections must be rejected");
+        // SQLite checks before sending: rejected responses must not be billed.
+        assert!(record_transfer(&h,100,false).is_err());
+        assert_eq!(usage(&h).unwrap()["transfer_bytes"],limit+99);
+        fs::remove_dir_all(h).unwrap();
+    }
+
+    #[test]
+    fn persistent_accounting_errors_do_not_forward_an_unbounded_stream() {
+        let mut output=Vec::new();let data=vec![0;3<<20];let mut attempts=0;
+        let result=metered_copy(&mut &data[..],&mut output,|_|{attempts+=1;Err("database is locked".into())});
+        assert!(result.is_err());assert_eq!(attempts,2);assert_eq!(output.len(),1<<20);
     }
     #[test]
     fn transfer_is_charged_in_batches_and_busy_charges_are_retried() {
