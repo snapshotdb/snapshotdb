@@ -116,16 +116,18 @@ main{padding:30px 0 90px}
 .abc .empty h3{font-size:18px;color:var(--ink);margin-bottom:6px}
 .abc /* ---- modal ---- */
 .scrim{position:fixed;inset:0;z-index:60;background:rgba(4,6,6,.72);backdrop-filter:blur(3px);
-  display:flex;align-items:flex-start;justify-content:center;padding:8vh 20px 20px}
+  display:flex;align-items:flex-start;justify-content:center;padding:24px 20px;overflow:auto;overscroll-behavior:contain}
+body:has(.abc .scrim){overflow:hidden}
 .abc .modal{background:linear-gradient(180deg,#111819,#0c0b0a);border:1px solid var(--line);border-radius:0;
-  width:100%;max-width:560px;box-shadow:var(--shadow);overflow:hidden;animation:rise .22s ease}
+  width:100%;max-width:560px;max-height:calc(100dvh - 48px);display:flex;flex-direction:column;
+  box-shadow:var(--shadow);overflow:hidden;animation:rise .22s ease}
 @keyframes rise{from{opacity:0;transform:translateY(10px)}}
-.abc .modal h3{font-size:21px;padding:20px 22px 0}
-.abc .modal .sub{color:var(--muted);padding:6px 22px 0;font-size:12.5px}
-.abc .modal .body{padding:18px 22px}
+.abc .modal h3{font-size:21px;padding:20px 22px 0;flex-shrink:0}
+.abc .modal .sub{color:var(--muted);padding:6px 22px 0;font-size:12.5px;flex-shrink:0}
+.abc .modal .body{padding:18px 22px;min-height:0;overflow:auto;overscroll-behavior:contain}
 .abc .modal .body > label{margin-top:14px}
 .abc .modal .body > label:first-child{margin-top:0}
-.abc .modal .foot{display:flex;gap:10px;justify-content:flex-end;padding:16px 22px;border-top:1px solid var(--line);background:#0a0908}
+.abc .modal .foot{display:flex;flex-wrap:wrap;flex-shrink:0;gap:10px;justify-content:flex-end;padding:16px 22px;border-top:1px solid var(--line);background:#0a0908}
 .abc .row2{display:grid;grid-template-columns:130px 1fr;gap:10px}
 .abc /* preflight checklist */
 .check{display:flex;gap:11px;padding:8px 0;border-bottom:1px solid var(--line);align-items:flex-start}

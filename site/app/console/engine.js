@@ -257,6 +257,11 @@ async function checkout(button){
 function openBilling(reason=''){
   const upgrade=el('button',{class:'btn primary',onclick:e=>checkout(e.currentTarget)},'Upgrade · $150/month');
   const pro=plan?.plan==='pro';
+  const manage=el('button',{class:'btn',onclick:async e=>{
+    const button=e.currentTarget;button.disabled=true;
+    try{const r=await fetch('/api/billing/portal',{method:'POST'});const value=await r.json();if(!r.ok)throw new Error(value.error);window.location.assign(value.url);}
+    catch(error){toast('err','Billing portal unavailable',error.message);button.disabled=false;}
+  }},'Manage billing');
   const m=modal(el('div',{class:'modal'},el('h3',{},'Plan & usage'),
     el('div',{class:'sub'},reason||'Only running compute uses branch-hours. Idle copies retain their data.'),
     el('div',{class:'body'},
@@ -264,9 +269,10 @@ function openBilling(reason=''){
         el('div',{class:'plan-card'},el('h4',{},'Free · $0'),el('p',{},'1 source database'),el('p',{},'2 total trial branch-hours'),el('p',{},'1 GiB storage · 1 GiB transfer'),el('p',{},'2 running databases')),
         el('div',{class:'plan-card'},el('h4',{},'Pro · $150/month'),el('p',{},'Unlimited source databases'),el('p',{},'300 branch-hours per billing month'),el('p',{},'50 GiB shared storage · 50 GiB transfer'),el('p',{},'4 running databases'))),
       el('p',{class:'hint'},'One database running for one hour uses one branch-hour. Running source replicas also count. Concurrent databases add together. Allowances stop compute at the limit; there are no automatic overage charges.'),
-      plan?el('p',{},'Used: '+(plan.used_seconds/3600).toFixed(2)+' / '+(plan.limit_seconds/3600)+' hours'+(plan.period_end?' · Renews '+new Date(plan.period_end*1000).toLocaleDateString():'')):null,
+      plan?el('p',{},'Used: '+(plan.used_seconds/3600).toFixed(2)+' / '+(plan.limit_seconds/3600)+' hours'+(plan.period_end?' · Paid period ends '+new Date(plan.period_end*1000).toLocaleDateString():'')):null,
+      !cfg.byoc&&plan?.customer?el('p',{class:'hint'},'Manage billing to view subscription status, update your payment method, or recover a failed payment.'):null,
       cfg.byoc?el('p',{},'BYOC uses your infrastructure and is outside hosted usage billing.'):null),
-    foot(btn('ghost','Close',()=>m.remove()),...(!cfg.byoc&&!pro?[upgrade]:[]),...(!cfg.byoc&&pro?[btn('ghost','Cancel renewal',async()=>{
+    foot(btn('ghost','Close',()=>m.remove()),...(!cfg.byoc&&!pro?[upgrade]:[]),...(!cfg.byoc&&plan?.customer?[manage]:[]),...(!cfg.byoc&&plan?.subscription?[btn('ghost','Cancel renewal',async()=>{
       if(!window.confirm('Cancel Pro renewal? You keep access until the paid period ends.'))return;
       try{const r=await fetch('/api/billing/cancel',{method:'POST'});const v=await r.json();if(!r.ok)throw new Error(v.error);toast('ok','Subscription',v.message);m.remove();}catch(e){toast('err','Cancellation failed',e.message);}
     })]:[]))));
