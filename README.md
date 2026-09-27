@@ -80,11 +80,11 @@ Prepared children cannot be reset; claim a replacement before removing the old b
 
 ### Measured on a 1 TB PostgreSQL database
 
-<table>
+<table width="100%">
   <tr>
-    <td align="center" width="33%"><h3>64–106 ms</h3><b>Prepared claims</b><br>Four concurrent agents<br>Server-local range</td>
-    <td align="center" width="33%"><h3>997 ms</h3><b>Fresh branch</b><br>Without a prepared pool<br>Server-local median</td>
-    <td align="center" width="33%"><h3>1,413 ms</h3><b>Fresh branch</b><br>From a laptop<br>Remote median</td>
+    <td align="center" valign="top" width="33%"><h3>64–106 ms</h3><b>Prepared claims</b><br>4 concurrent agents<br>Server-local range</td>
+    <td align="center" valign="top" width="33%"><h3>997 ms</h3><b>Fresh / server</b><br>No prepared pool<br>Median of 20 trials</td>
+    <td align="center" valign="top" width="33%"><h3>1,413 ms</h3><b>Fresh / laptop</b><br>No prepared pool<br>Median of 20 trials</td>
   </tr>
 </table>
 
