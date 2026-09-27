@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     if (current.subscription) {
       const existing = await dodo(`/subscriptions/${current.subscription}`);
       if (!["cancelled", "expired", "failed"].includes(existing.status)) {
-        return Response.json({ error: "A subscription already exists. Refresh usage or contact support to resolve its payment status." }, { status: 409 });
+        return Response.json({ error: "A subscription already exists. Choose Manage billing in Plan & usage to check its status or update your payment method." }, { status: 409 });
       }
     }
     const productId = await verifiedProduct();

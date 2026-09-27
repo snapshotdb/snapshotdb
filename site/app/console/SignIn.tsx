@@ -20,8 +20,8 @@ export default function SignIn({ error }: { error?: string }) {
 
           <h1>Sign in to the console</h1>
           <p>
-            Manage your sources and branches. You’ll connect the console to your self-hosted
-            snapshotdb server with its access token after signing in.
+            Manage your sources and branches on SnapshotDB Cloud. Start with the free trial,
+            or connect your own SnapshotDB server from Deployment settings after signing in.
           </p>
 
           {error && <div className="err">{ERRORS[error] || "Something went wrong. Try again."}</div>}
