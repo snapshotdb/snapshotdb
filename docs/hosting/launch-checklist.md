@@ -6,9 +6,10 @@ time, and redacted evidence for each item. Deployment is manual.
 
 ## Release and billing
 
-- Merge the launch fixes, rebuild backend and all downloadable CLI binaries from
-  that merged revision, and deploy the backend before the site. Do not reuse the
-  older binaries currently tracked under `site/public/dl`.
+- Select the intended merged source revision, build the backend and all downloadable
+  CLI binaries from it, and deploy the backend before the site. Inspect the tracked
+  `site/public/dl/BUILD.json`; follow [release-cli.md](release-cli.md) if it does not
+  identify the intended source. Never infer deployment from a repository update.
 - Confirm the served CLI checksums and the running backend revision match the
   intended build. Preserve the previous release for rollback.
 - In **Dodo test mode**, verify checkout, signed webhook delivery, duplicate and
@@ -49,9 +50,11 @@ time, and redacted evidence for each item. Deployment is manual.
 
 - Publish approved privacy, service terms, refund/cancellation terms, a working
   support contact, and a specific data-retention/deletion policy. These require
-  owner decisions and are not supplied by the code fixes.
+  verified operator details and implemented retention controls, not invented promises.
+  Use [customer-policy requirements](customer-policies.md) to collect the missing facts.
 - Make `snapshotdb/snapshotdb` public when ready, or remove public open-source
   calls to action until the repository is accessible without signing in.
+  Verify the README video, raw agent-skill install URL, and license while signed out.
 - State that CLI access currently uses BYOC server URL/token credentials; GitHub
   CLI sign-in alone does not connect the CLI to the hosted console workspace.
 - Test sign-in, first source, preflight errors, sync readiness, branch creation,

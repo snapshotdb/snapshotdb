@@ -2,6 +2,24 @@
 
 ## 0.4.0 (unreleased)
 
+This section describes source changes and website CLI bundles. It does not assert that
+the hosted service has been deployed or passed production launch acceptance.
+
+- Hosted GitHub workspaces, Free/Pro quota accounting, Linux cgroup limits, and Dodo
+  checkout/webhooks with a customer portal for billing recovery.
+- Persist delivered transfer bytes, preserve webhook millisecond ordering, and correlate
+  checkout completion with its reservation. Stale activation cannot override revocation
+  at the same timestamp.
+- Up to four concurrent workspace jobs with per-workspace FIFO, bounded admission,
+  execution deadlines, and worker process-group cleanup on timeout or shutdown.
+- Hosted source validation rejects unchecked SRV discovery and special-use destinations.
+  Connection-time network isolation remains a deployment requirement.
+- Mobile dialogs keep actions reachable and restore background scrolling when closed.
+- Website CLI bundles include all three published platforms, SHA-256 checksums, and a
+  source revision manifest; CLI version and authenticated health expose the build revision.
+- README launch video, corrected agent-skill installation path, and updated deployment,
+  prepared-branch, and website development documentation.
+
 - Explicit immutable snapshots and ready branch pools via `prepare`; agent claims return
   isolated, already-running databases. All four engines passed sub-second allocation plus
   first committed read/write, including a laptop-to-Mumbai test. See `docs/latency-results.md`.
