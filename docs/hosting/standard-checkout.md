@@ -1,5 +1,10 @@
 # Razorpay Standard Checkout (test mode)
 
+> Historical only. The Razorpay routes and test-payment button described below
+> have been removed. Current hosted billing uses Dodo Payments; follow
+> [deployment.md](deployment.md) and the [launch checklist](launch-checklist.md).
+> Do not use this page to configure a new deployment.
+
 The Next.js console has a one-time Standard Checkout flow alongside recurring
 Pro subscriptions. It does not activate or renew Pro. The button is in Console →
 Plan & usage → Test payment · ₹1. BYOC does not show hosted payment controls.

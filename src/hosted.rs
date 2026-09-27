@@ -244,6 +244,9 @@ pub fn validate(args: &Args) -> R<()> {
 fn public_source(url: &str) -> R<()> {
     let bad = || Err::<(), String>("Hosted sources must be a database URL with a public hostname.".into());
     let Some((scheme, rest)) = url.split_once("://") else { return bad() };
+    // SRV/TXT discovery is performed again by MongoDB clients and can introduce
+    // unvalidated destinations. Fail closed until discovery is safely isolated.
+    if scheme == "mongodb+srv" { return Err("Hosted MongoDB sources require a standard mongodb:// seed-list URL with public hosts and tls=true. SRV discovery is not supported; obtain the standard connection string from your provider or use BYOC.".into()); }
     if !matches!(scheme, "postgres" | "postgresql" | "mysql" | "mongodb" | "mongodb+srv") { return bad(); }
     let (authority, query) = match rest.split_once('?') { Some((a, q)) => (a, q), None => (rest, "") };
     let authority = authority.split('/').next().unwrap_or("");
@@ -260,9 +263,8 @@ fn public_source(url: &str) -> R<()> {
         let (host, port) = (decode(host), port.parse().unwrap_or(0));
         let host = host.as_str();
         if host.is_empty() || host.contains(['/', '\\', '%']) { return bad(); }
-        // ponytail: resolve-then-connect leaves a DNS-rebinding window, and mongodb+srv SRV
-        // targets are not checked; pin resolved IPs into the child's URL if that matters.
-        if scheme == "mongodb+srv" { continue; }
+        // This rejects unsafe initial answers, not subsequent DNS changes or
+        // replica-set discovery. Hosted deployments also require egress isolation.
         let addrs: Vec<_> = match (host, port).to_socket_addrs() { Ok(a) => a.collect(), Err(_) => return bad() };
         if addrs.is_empty() || addrs.iter().any(|a| !public_ip(a.ip())) { return bad(); }
     }
@@ -272,12 +274,20 @@ fn public_source(url: &str) -> R<()> {
 fn public_ip(ip: std::net::IpAddr) -> bool {
     use std::net::IpAddr::*;
     match ip {
-        V4(v) => !(v.is_loopback() || v.is_private() || v.is_link_local() || v.is_unspecified()
-            || v.is_broadcast() || v.is_multicast() || v.octets()[0] == 100 && v.octets()[1] & 0xc0 == 64),
+        V4(v) => {
+            let [a,b,c,_] = v.octets();
+            !(v.is_loopback() || v.is_private() || v.is_link_local() || v.is_unspecified()
+                || v.is_broadcast() || v.is_multicast() || v.is_documentation()
+                || a == 0 || a >= 240 || a == 100 && b & 0xc0 == 64
+                || a == 198 && (b == 18 || b == 19) || a == 192 && b == 0 && c == 0)
+        },
         V6(v) => match v.to_ipv4_mapped() {
             Some(v4) => public_ip(V4(v4)),
-            None => !(v.is_loopback() || v.is_unspecified() || v.is_multicast()
-                || v.segments()[0] & 0xfe00 == 0xfc00 || v.segments()[0] & 0xffc0 == 0xfe80),
+            // Only ordinary global unicast; exclude transition/protocol and documentation space.
+            None => v.segments()[0] & 0xe000 == 0x2000
+                && v.segments()[0] != 0x2002
+                && !(v.segments()[0] == 0x2001 && (v.segments()[1] < 0x200 || v.segments()[1] == 0xdb8))
+                && !(v.segments()[0] == 0x3fff && v.segments()[1] < 0x1000),
         },
     }
 }
@@ -465,10 +475,14 @@ mod tests {
             "postgresql://u@127.0.0.1:5432/app", "postgresql://u@localhost/app", "postgresql://u@[::1]:5432/app",
             "postgresql://u@10.0.0.5/app", "postgresql://u@169.254.169.254/app", "postgresql://u@1.1.1.1,127.0.0.1/app",
             "mongodb://%2Ftmp%2Fmongodb-27017.sock", "mysql://root@192.168.1.2:3306/", "host=/tmp dbname=x",
-            "file:///etc/passwd", "postgresql://u@[::ffff:127.0.0.1]/app"] {
+            "file:///etc/passwd", "postgresql://u@[::ffff:127.0.0.1]/app",
+            "mongodb+srv://u:p@cluster0.example.net/app", "mongodb+srv://u@127.0.0.1/app",
+            "postgresql://u@0.1.2.3/app", "mysql://u@198.18.0.1/app", "mysql://u@240.0.0.1/app",
+            "postgresql://u@[64:ff9b::a00:1]/app", "postgresql://u@[2002:7f00:1::]/app",
+            "postgresql://u@[2001:db8::1]/app", "postgresql://u@[::127.0.0.1]/app"] {
             assert!(public_source(url).is_err(), "{url}");
         }
-        for url in ["postgresql://u:p@1.1.1.1:5432/app?sslmode=require", "mysql://u@8.8.8.8/", "mongodb+srv://u:p@cluster0.example.net/app",
+        for url in ["postgresql://u:p@1.1.1.1:5432/app?sslmode=require", "mysql://u@8.8.8.8/", "mongodb://u:p@1.1.1.1,8.8.8.8/app?tls=true",
             "postgresql://u@[2606:4700:4700::1111]:5432/app"] {
             assert!(public_source(url).is_ok(), "{url}");
         }
