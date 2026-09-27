@@ -3,6 +3,8 @@
 Branch your production database on your own server. The CLI sends requests; database files
 and database processes stay on the deployed server.
 
+https://github.com/user-attachments/assets/00146060-9dd5-426f-9f81-8087fd3080ea
+
 ```sh
 export SNAPSHOTDB_SERVER=https://snapshotdb.example.com
 export SNAPSHOTDB_TOKEN='<your server access token>'
