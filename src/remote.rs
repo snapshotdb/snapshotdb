@@ -439,7 +439,7 @@ fn serve(args: &Args) -> R<()> {
             }
         }
         if request.method() == &Method::Get && path == "/v1/health" {
-            reply(request, 200, json!({"version": env!("CARGO_PKG_VERSION")}));
+            reply(request, 200, json!({"version": env!("CARGO_PKG_VERSION"), "revision": env!("SNAPSHOTDB_BUILD_SHA")}));
         } else if request.method() == &Method::Get && path.starts_with("/v1/jobs/") {
             let id = &path[9..];
             let value = if valid_job_id(id) {

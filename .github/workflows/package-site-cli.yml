@@ -1,0 +1,58 @@
+name: package-site-cli
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/package-site-cli.yml'
+      - 'build.rs'
+      - 'scripts/package_site_cli.py'
+      - 'scripts/test_package_site_cli.py'
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, target: aarch64-apple-darwin, asset: snapshotdb-darwin-arm64, native: true }
+          - { os: macos-14, target: x86_64-apple-darwin, asset: snapshotdb-darwin-amd64, native: false }
+          - { os: ubuntu-24.04, target: x86_64-unknown-linux-gnu, asset: snapshotdb-linux-amd64, native: true }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: cargo build --locked --release --target ${{ matrix.target }}
+        env:
+          SNAPSHOTDB_BUILD_SHA: ${{ github.sha }}
+      - if: matrix.native
+        run: target/${{ matrix.target }}/release/snapshotdb --version | grep -F "$BUILD_SHA"
+        env:
+          BUILD_SHA: ${{ github.sha }}
+      - run: cp target/${{ matrix.target }}/release/snapshotdb ${{ matrix.asset }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: raw-${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+  bundle:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: raw-snapshotdb-*
+          merge-multiple: true
+          path: raw
+      - run: python3 scripts/package_site_cli.py raw bundle --revision "$BUILD_SHA"
+        env:
+          BUILD_SHA: ${{ github.sha }}
+      - run: cd bundle && sha256sum --check SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site-cli-${{ github.sha }}
+          path: bundle/
+          if-no-files-found: error
