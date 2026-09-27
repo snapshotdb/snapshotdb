@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="390" viewBox="0 0 1200 390" role="img" aria-labelledby="title desc">
+  <title id="title">One source replica. Three independent branches.</title>
+  <desc id="desc">A production source replicates to a SnapshotDB server. Copy-on-write branches give Claude Code a migration database, Codex a backfill database and OpenCode a query database, each with its own URL and credentials. Branch writes do not replicate back to the source.</desc>
+  <rect width="1200" height="390" rx="12" fill="#0b0a09"/>
+  <rect x="354" y="28" width="816" height="332" rx="8" fill="#14120e" stroke="#413b30"/>
+  <g font-family="Arial, Helvetica, sans-serif" fill="#efe9df">
+    <text x="382" y="65" font-size="20" fill="#b8b1a3">Your SnapshotDB server</text>
+    <text x="47" y="145" font-size="22" font-weight="700">Production</text>
+    <text x="47" y="174" font-size="18" fill="#b8b1a3">Source database</text>
+    <g fill="none" stroke="#9b927f" stroke-width="2">
+      <path d="M72 222v53c0 11 23 20 51 20s51-9 51-20v-53"/>
+      <ellipse cx="123" cy="222" rx="51" ry="20"/>
+      <path d="M72 249c0 11 23 20 51 20s51-9 51-20"/>
+    </g>
+    <path d="M202 219H378" fill="none" stroke="#b8b1a3" stroke-width="2"/>
+    <path d="m367 213 11 6-11 6" fill="none" stroke="#b8b1a3" stroke-width="2"/>
+    <text x="211" y="201" font-size="17" fill="#b8b1a3">replication</text>
+    <rect x="392" y="163" width="207" height="112" rx="5" fill="#232019" stroke="#827661"/>
+    <text x="416" y="201" font-size="22" font-weight="700">Synced replica</text>
+    <text x="416" y="237" font-size="18" fill="#b8b1a3">Copy-on-write</text>
+    <g fill="none" stroke="#f2603d" stroke-width="2.5" stroke-linecap="round">
+      <path d="M599 219H648C675 219 671 121 708 121H747"/>
+      <path d="M599 219H747"/>
+      <path d="M599 219H648C675 219 671 317 708 317H747"/>
+    </g>
+    <g fill="#1a1712" stroke="#66523f">
+      <rect x="750" y="83" width="390" height="76" rx="5"/>
+      <rect x="750" y="181" width="390" height="76" rx="5"/>
+      <rect x="750" y="279" width="390" height="76" rx="5"/>
+    </g>
+    <g fill="#f2603d">
+      <circle cx="750" cy="121" r="5"/>
+      <circle cx="750" cy="219" r="5"/>
+      <circle cx="750" cy="317" r="5"/>
+    </g>
+    <text x="774" y="114" font-size="22" font-weight="700">Claude Code</text>
+    <text x="774" y="143" font-size="18" fill="#b8b1a3">Test a migration</text>
+    <text x="774" y="212" font-size="22" font-weight="700">Codex</text>
+    <text x="774" y="241" font-size="18" fill="#b8b1a3">Run a backfill</text>
+    <text x="774" y="310" font-size="22" font-weight="700">OpenCode</text>
+    <text x="774" y="339" font-size="18" fill="#b8b1a3">Fix a query</text>
+    <text x="48" y="343" font-size="17" fill="#b8b1a3">Branch writes stay on the branch.</text>
+  </g>
+</svg>
