@@ -28,6 +28,8 @@ that replication had caught up to every source write. Branch initialization hook
 preparing the snapshot and are not reapplied to each prepared child. A snapshot cannot be
 started or reset into a writable database. Removing one is refused while agent branches
 reference it. Remove agents first; deleting the snapshot then also removes unused capacity.
+Prepared children cannot be reset either. Claim a new branch from available capacity before
+removing the old one; prepare a new snapshot if you need newer source data.
 
 Claims are serialized and consume distinct slots. Retrying the same name and parent returns
 the same branch and URL. An empty pool or dead ready engine returns an error without falling

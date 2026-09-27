@@ -70,9 +70,10 @@ Later source changes do not appear automatically; `reset` re-clones the parent.
 
 An operator can prepare an immutable snapshot with `snapshotdb prepare release-1 --from
 prod --count 3`, then agents claim it with `snapshotdb create <task-name> --from release-1`.
-Preparation happens before allocation and consumes running capacity. Resetting a child
-of an immutable snapshot uses that snapshot, not newer production data. Stop on pool
-exhaustion; do not fall back to the production connection string.
+Preparation happens before allocation and consumes running capacity. Prepared children
+cannot be reset: claim a replacement before removing the old branch. A new snapshot is
+required for newer source data. Stop on pool exhaustion; do not fall back to the production
+connection string.
 
 Idle branches suspend after 5 minutes and resume on the next connection, so a first query
 after a pause takes a moment longer.

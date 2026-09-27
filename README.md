@@ -19,7 +19,7 @@ https://github.com/user-attachments/assets/00146060-9dd5-426f-9f81-8087fd3080ea
 - Keep a server-side replica in sync with PostgreSQL, MySQL, or MongoDB, then branch it.
   SQLite starts from a server-side file or an empty database.
 - Prepare immutable snapshots and running branch pools before an agent burst.
-- Reset a branch to its parent, pause idle engines, and remove branches when finished.
+- Reset ordinary branches to their parent, pause idle engines, and remove branches when finished.
 
 Branch URLs grant access to copied data. Keep them private and apply masking hooks when
 needed; separate database credentials do not replace network isolation.
@@ -73,6 +73,7 @@ Each claim receives a separate, already-running database. Preparation takes time
 consumes resources; an exhausted pool returns an error. Refill with `prepare` using the
 same snapshot name, or use a new name to capture newer source data. See
 [prepared branches](docs/prepared-branches.md) for freshness, lifecycle, and SQLite usage.
+Prepared children cannot be reset; claim a replacement before removing the old branch.
 
 In the recorded 1 TB PostgreSQL test, four concurrent prepared claims completed allocation,
 connection, read, committed write, and read-back in **64–106 ms** on the server. The
