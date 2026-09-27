@@ -122,7 +122,7 @@ fn main() {
         if let Err(e) = hosted::validate(&a) { eprintln!("{e}"); process::exit(1); }
     }
     if a.flag("version") {
-        println!("snapshotdb {}", env!("CARGO_PKG_VERSION"));
+        println!("snapshotdb {} ({})", env!("CARGO_PKG_VERSION"), env!("SNAPSHOTDB_BUILD_SHA"));
         return;
     }
     if a.flag("help") || a.pos.is_empty() {
