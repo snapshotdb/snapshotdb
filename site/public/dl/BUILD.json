@@ -1,0 +1,8 @@
+{
+  "revision": "b35f33e209fb23e8e635a123fa7996705900809e",
+  "sha256": {
+    "snapshotdb-darwin-amd64": "452a503334e572d7b71019df7cf9bc108a73b6d85e6a11b618231373188bcc6f",
+    "snapshotdb-darwin-arm64": "36a48193ae5daf4fd961cd1e40a6b985686bb9a68a62e056caf69a9ba42bdf99",
+    "snapshotdb-linux-amd64": "5991638bc449bb7c75bd67ed37166a9c8416ed949deb1383ed9746264bd52f7a"
+  }
+}
